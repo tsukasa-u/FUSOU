@@ -505,3 +505,313 @@ fn normal_binary_rejects_invalid_loopback_settings_before_side_effects() {
         );
     }
 }
+
+fn required_path(name: &str) -> PathBuf {
+    PathBuf::from(std::env::var_os(name).unwrap_or_else(|| panic!("{name} is required")))
+}
+
+fn worker_session_credentials(directory: &Path) -> Credentials {
+    Credentials {
+        root_der: fs::read(directory.join("origin-root.der")).expect("read test trust anchor"),
+        origin_certificate_der: fs::read(directory.join("origin-certificate.der"))
+            .expect("read loopback origin certificate"),
+        origin_private_key_der: fs::read(directory.join("origin-private-key.der"))
+            .expect("read loopback origin private key"),
+    }
+}
+
+#[test]
+fn prepare_worker_session_fixture_credentials() {
+    let directory = required_path("FUSOU_TEST_TLSN_CREDENTIALS_DIR");
+    let server_identity = std::env::var("FUSOU_TEST_ORIGIN_IDENTITY")
+        .unwrap_or_else(|_| ORIGIN_IDENTITY.to_owned());
+    let credentials = Credentials::new_for(&server_identity);
+    write_file(&directory.join("origin-root.der"), &credentials.root_der, false);
+    write_file(
+        &directory.join("origin-certificate.der"),
+        &credentials.origin_certificate_der,
+        false,
+    );
+    write_file(
+        &directory.join("origin-private-key.der"),
+        &credentials.origin_private_key_der,
+        true,
+    );
+}
+
+#[test]
+fn export_worker_session_fixture_notary_key() {
+    write_file(
+        &required_path("FUSOU_TEST_NOTARY_KEY_OUTPUT"),
+        &notary_key_bytes(),
+        false,
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn worker_session_grant_produces_independently_verified_complete_presentation() {
+    let workspace = TestWorkspace::new();
+    let server_identity = std::env::var("FUSOU_TEST_ORIGIN_IDENTITY")
+        .unwrap_or_else(|_| ORIGIN_IDENTITY.to_owned());
+    let notary_id = std::env::var("FUSOU_TEST_NOTARY_ID")
+        .unwrap_or_else(|_| NOTARY_ID.to_owned());
+    let notary_key_id = std::env::var("FUSOU_TEST_NOTARY_KEY_ID")
+        .unwrap_or_else(|_| "fixture-k256".to_owned());
+    let environment = std::env::var("FUSOU_TEST_NOTARY_ENVIRONMENT")
+        .unwrap_or_else(|_| ENVIRONMENT.to_owned());
+    let credential_directory = required_path("FUSOU_TEST_TLSN_CREDENTIALS_DIR");
+    let credentials = worker_session_credentials(&credential_directory);
+    let session: Value = serde_json::from_slice(
+        &fs::read(required_path("FUSOU_TEST_SESSION_INPUT")).expect("read Worker session"),
+    )
+    .expect("parse Worker session");
+    let session_id = session["session_id"].as_str().expect("session ID");
+    let device_id = session["device_id"].as_str().expect("device ID");
+    let binding = session["binding"].as_str().expect("binding");
+    let session_authority_key_id =
+        std::env::var("FUSOU_TEST_SESSION_AUTHORITY_KEY_ID").expect("Session Authority key ID");
+    let session_authority_public_key_spki = URL_SAFE_NO_PAD
+        .decode(
+            std::env::var("FUSOU_TEST_SESSION_AUTHORITY_PUBLIC_KEY_SPKI")
+                .expect("Session Authority public key"),
+        )
+        .expect("decode Session Authority public key");
+    let grant_bytes = URL_SAFE_NO_PAD
+        .decode(
+            session["session_context_grant"]
+                .as_str()
+                .expect("Session Context Grant"),
+        )
+        .expect("decode Session Context Grant");
+    let grant_context =
+        SessionContextGrant::parse(&grant_bytes).expect("parse Worker Session Context Grant");
+    grant_context
+        .verify(
+            &session_authority_public_key_spki,
+            &session_authority_key_id,
+        )
+        .expect("verify Worker Session Context Grant signature");
+    assert_eq!(grant_context.session_id(), session_id);
+    assert_eq!(grant_context.binding_value(), binding);
+    assert_eq!(
+        grant_context.device_id_sha256(),
+        &device_id_commitment(device_id).expect("commit registered device ID")
+    );
+    assert_eq!(
+        grant_context.device_challenge().as_slice(),
+        URL_SAFE_NO_PAD
+            .decode(
+                session["device_challenge"]
+                    .as_str()
+                    .expect("device challenge")
+            )
+            .expect("decode device challenge")
+            .as_slice()
+    );
+    assert!(grant_context.issued_at_ms() <= now_ms());
+    assert!(grant_context.expires_at_ms() > now_ms());
+
+    let grant = GrantFixture {
+        binding: binding.to_owned(),
+        bytes: grant_bytes,
+        session_id: session_id.to_owned(),
+        device_id: device_id.to_owned(),
+    };
+    let signing_key = workspace.path("notary-signing-key.der");
+    let root_certificate = workspace.path("origin-root.der");
+    write_file(&signing_key, &NOTARY_SIGNING_KEY, true);
+    write_file(&root_certificate, &credentials.root_der, false);
+    let ledger = workspace.path("ledger");
+    fs::create_dir(&ledger).expect("create isolated operational Notary ledger");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&ledger, fs::Permissions::from_mode(0o700))
+            .expect("restrict isolated Notary ledger");
+    }
+    let listen = {
+        let socket = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("reserve ephemeral loopback Notary port");
+        socket.local_addr().expect("read Notary port").to_string()
+    };
+    let config_path = workspace.path("operator.json");
+    let config = json!({
+        "schema_version": 1,
+        "listen": listen,
+        "public": {
+            "endpoint": listen,
+            "environment": environment,
+            "notary_id": notary_id,
+            "notary_key_id": notary_key_id,
+            "notary_verifying_key": URL_SAFE_NO_PAD.encode(notary_key_bytes()),
+            "session_authority_key_id": session_authority_key_id,
+            "session_authority_public_key_spki": URL_SAFE_NO_PAD.encode(&session_authority_public_key_spki),
+            "wire_version": notary_wire::VERSION,
+        },
+        "ledger_directory": ledger,
+        "notary_signing_key_file": signing_key,
+        "origin_trust_anchor_der": root_certificate,
+    });
+    write_config(&config_path, &config);
+    let exported = invoke("export-public", &config_path);
+    assert!(
+        exported.status.success(),
+        "export-public failed: {}",
+        String::from_utf8_lossy(&exported.stderr)
+    );
+    let exported: Value =
+        serde_json::from_slice(&exported.stdout).expect("parse normal Notary public export");
+    assert_eq!(exported["endpoint"], listen);
+    assert_eq!(exported["notary_id"], notary_id);
+    assert_eq!(exported["environment"], environment);
+    assert_eq!(exported["notary_key_id"], notary_key_id);
+    assert_eq!(
+        exported["notary_verifying_key"],
+        URL_SAFE_NO_PAD.encode(notary_key_bytes())
+    );
+    assert_eq!(
+        exported["session_authority_key_id"],
+        session_authority_key_id
+    );
+    assert_eq!(
+        exported["session_authority_public_key_spki"],
+        URL_SAFE_NO_PAD.encode(&session_authority_public_key_spki)
+    );
+    let initialized = invoke("init", &config_path);
+    assert!(
+        initialized.status.success(),
+        "normal Notary init failed: {}",
+        String::from_utf8_lossy(&initialized.stderr)
+    );
+    let mut notary = start(&workspace, &config_path, &listen).await;
+    let mut origin = LoopbackOrigin::start(&credentials).await;
+    let request = request_for_identity(&grant, &server_identity);
+    let request_bytes = request.bytes().to_vec();
+    let outcome = run_once_with_scope(
+        origin_config_for(origin.address, &credentials.root_der, &server_identity),
+        &listen,
+        request.clone(),
+        notary_verifying_key(),
+        DisclosureMode::Complete,
+        &notary_id,
+        &environment,
+        Some(grant.bytes.clone()),
+        Vec::new(),
+    )
+    .await
+    .expect("run complete TLSN exchange against local normal Notary");
+    assert_eq!(outcome.response, origin.response);
+    let origin_request = origin.next_request().await;
+    assert_headerless_request(&origin_request, &request_bytes);
+    origin.assert_request_count(1).await;
+
+    let presentation = outcome
+        .presentation
+        .expect("normal Notary must produce a Complete Presentation");
+    let authenticated = verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor(
+        &presentation,
+        &credentials.root_der,
+        &notary_key_bytes(),
+    )
+    .expect("independently verify Presentation, Web PKI, and Notary signature");
+    let profile =
+        SessionExtensionRequireInfoDisclosureProfile::from_server_identity_and_session_authority(
+            &server_identity,
+            &session_authority_key_id,
+            &session_authority_public_key_spki,
+        )
+        .expect("pin Worker Session Authority for independent verification");
+    let verified = authenticated
+        .verify_require_info_with_session_extension(&profile, &ParserLimits::default())
+        .expect("verify Complete require-info transcript and Session extension");
+    assert_eq!(verified.server_identity(), server_identity);
+    assert_eq!(
+        verified
+            .session_context()
+            .expect("verified session context")
+            .grant
+            .encoded(),
+        grant.bytes
+    );
+    assert_eq!(
+        verified
+            .session_context()
+            .expect("verified session context")
+            .acceptance
+            .policy_id(),
+        NOTARY_SESSION_CONTEXT_POLICY_ID
+    );
+    assert_eq!(
+        verified.request_transcript_size(),
+        request_bytes.len() as u64
+    );
+    assert_eq!(
+        verified.request_transcript_sha256(),
+        Some(&sha256(&request_bytes))
+    );
+    assert_eq!(
+        verified.response_transcript_size(),
+        outcome.response.len() as u64
+    );
+    assert_eq!(
+        verified.response_transcript_sha256(),
+        Some(&sha256(&outcome.response))
+    );
+    assert_eq!(
+        reconstruct_ranges(
+            &verified.revealed_request_ranges(),
+            verified.request_transcript_size()
+        ),
+        request_bytes
+    );
+    assert_eq!(
+        reconstruct_ranges(
+            &verified.revealed_response_ranges(),
+            verified.response_transcript_size()
+        ),
+        outcome.response
+    );
+
+    write_file(
+        &required_path("FUSOU_TEST_PRESENTATION_OUTPUT"),
+        &presentation,
+        true,
+    );
+    write_file(
+        &required_path("FUSOU_TEST_ORIGIN_REQUEST_OUTPUT"),
+        &origin_request,
+        true,
+    );
+    write_file(
+        &required_path("FUSOU_TEST_ORIGIN_RESPONSE_OUTPUT"),
+        &origin.response,
+        true,
+    );
+    let metadata = json!({
+        "session_id": session_id,
+        "device_id": device_id,
+        "binding": binding,
+        "server_identity": verified.server_identity(),
+        "presentation_sha256": URL_SAFE_NO_PAD.encode(sha256(&presentation)),
+        "presentation_bytes": presentation.len(),
+        "request_transcript_sha256": URL_SAFE_NO_PAD.encode(sha256(&request_bytes)),
+        "request_transcript_bytes": request_bytes.len(),
+        "origin_request_sha256": URL_SAFE_NO_PAD.encode(sha256(&origin_request)),
+        "origin_request_bytes": origin_request.len(),
+        "response_transcript_sha256": URL_SAFE_NO_PAD.encode(sha256(&outcome.response)),
+        "response_transcript_bytes": outcome.response.len(),
+        "origin_response_sha256": URL_SAFE_NO_PAD.encode(sha256(&origin.response)),
+        "origin_response_bytes": origin.response.len(),
+        "notary_id": notary_id,
+        "notary_key_id": notary_key_id,
+        "environment": environment,
+        "independent_verification": "PASS",
+    });
+    write_file(
+        &required_path("FUSOU_TEST_PRESENTATION_METADATA_OUTPUT"),
+        &serde_json::to_vec(&metadata).expect("serialize Presentation metadata"),
+        true,
+    );
+    assert!(notary.stop().expect("stop normal Notary").success());
+    origin.stop().await;
+}

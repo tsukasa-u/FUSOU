@@ -113,6 +113,10 @@ struct Credentials {
 
 impl Credentials {
     fn new() -> Self {
+        Self::new_for(ORIGIN_IDENTITY)
+    }
+
+    fn new_for(server_identity: &str) -> Self {
         let root_key_pair = KeyPair::generate().expect("generate test trust-anchor key");
         let mut root_params = CertificateParams::default();
         root_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
@@ -126,7 +130,7 @@ impl Credentials {
             .expect("create test trust anchor");
 
         let mut origin_params =
-            CertificateParams::new(vec![ORIGIN_IDENTITY.to_owned()]).expect("origin SAN");
+            CertificateParams::new(vec![server_identity.to_owned()]).expect("origin SAN");
         origin_params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
         origin_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
         let origin_key_pair = KeyPair::generate().expect("generate test origin key");
@@ -562,7 +566,11 @@ fn now_ms() -> u64 {
 }
 
 fn request_for(grant: &GrantFixture) -> SerializedOriginRequest {
-    synthetic_test_request_with_grant(ORIGIN_IDENTITY, grant.binding.clone(), grant.bytes.clone())
+    request_for_identity(grant, ORIGIN_IDENTITY)
+}
+
+fn request_for_identity(grant: &GrantFixture, server_identity: &str) -> SerializedOriginRequest {
+    synthetic_test_request_with_grant(server_identity, grant.binding.clone(), grant.bytes.clone())
         .expect("serialize headerless loopback request")
 }
 
@@ -575,10 +583,18 @@ fn notary_key_bytes() -> Vec<u8> {
 }
 
 fn origin_config(address: SocketAddr, root_der: &[u8]) -> OriginTransportConfig {
+    origin_config_for(address, root_der, ORIGIN_IDENTITY)
+}
+
+fn origin_config_for(
+    address: SocketAddr,
+    root_der: &[u8],
+    server_identity: &str,
+) -> OriginTransportConfig {
     let target = OriginTarget::new(
-        ORIGIN_IDENTITY.to_owned(),
+        server_identity.to_owned(),
         address.port(),
-        ORIGIN_IDENTITY.to_owned(),
+        server_identity.to_owned(),
     )
     .expect("configure canonical loopback TLS identity")
     .with_local_test_connect_address(address)
@@ -586,7 +602,7 @@ fn origin_config(address: SocketAddr, root_der: &[u8]) -> OriginTransportConfig 
     let tls =
         OriginTlsConfig::for_local_test(root_der.to_vec()).expect("pin loopback test trust anchor");
     let identity_policy = ServerIdentityPolicy::from_approved_targets(vec![(
-        ORIGIN_IDENTITY.to_owned(),
+        server_identity.to_owned(),
         address.port(),
     )])
     .expect("allow the single loopback DNS identity");
