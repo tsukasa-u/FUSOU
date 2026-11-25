@@ -40,6 +40,7 @@ import type { MstShipData, MstSlotItemData, SlotUsageSummary } from "@/features/
 
 export { StatPill } from "@/components/common/solid/StatPill";
 import { StatPill } from "@/components/common/solid/StatPill";
+import { attachStickyWheelScroll } from "@/components/common/solid/sticky-scroll";
 // ── Cooperative Background Pre-Renderer ──────────────────────────────
 // Hydrates below-the-fold LazyRender blocks and ProgressiveGrid chunks
 // incrementally during browser idle slices so content is ready before the
@@ -813,151 +814,22 @@ export function DetailTabbedShell<T extends string>(props: {
 
   onMount(() => {
     const el = shellEl;
-    if (!el || typeof window === "undefined") return;
-
-    const parseCssLength = (raw: string, rootFont: number, fallback: number): number => {
-      const trimmed = raw.trim();
-      if (!trimmed) return fallback;
-      if (trimmed.endsWith("rem")) return parseFloat(trimmed) * rootFont;
-      const px = parseFloat(trimmed);
-      return Number.isFinite(px) ? px : fallback;
-    };
-
-    const getTargetTopPx = (): number => {
-      const rootStyle = getComputedStyle(document.documentElement);
-      const rootFont = parseFloat(rootStyle.fontSize) || 16;
-      const navOffset = parseCssLength(
-        rootStyle.getPropertyValue("--fusou-nav-offset"),
-        rootFont,
-        5 * rootFont,
-      );
-      if (window.matchMedia("(min-width: 1280px)").matches) {
-        return navOffset;
-      }
-      const mobilePickerOffset = parseCssLength(
-        getComputedStyle(el).getPropertyValue("--fusou-mobile-picker-offset"),
-        rootFont,
-        0,
-      );
-      return navOffset + mobilePickerOffset;
-    };
-
-    const findActiveScrollEl = (): HTMLElement | null => {
-      const nodes = el.querySelectorAll<HTMLElement>(
-        '[data-synergy-scroll="true"]',
-      );
-      for (let i = 0; i < nodes.length; i++) {
-        const node = nodes[i];
-        if (node && node.offsetParent !== null) return node;
-      }
-      return null;
-    };
-
-    const onWheel = (e: WheelEvent) => {
-      if (props.expanded || e.ctrlKey) return;
-      if (Math.abs(e.deltaY) < Math.abs(e.deltaX) || e.deltaY === 0) return;
-
-      const dy =
-        e.deltaMode === 1
-          ? e.deltaY * 16
-          : e.deltaMode === 2
-            ? e.deltaY * window.innerHeight
-            : e.deltaY;
-
-      const scrollEl = findActiveScrollEl();
-      const maxInnerScroll = scrollEl
-        ? Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight)
-        : 0;
-      const rect = el.getBoundingClientRect();
-      const targetTop = getTargetTopPx();
-      const maxPageScroll = Math.max(
-        0,
-        document.documentElement.scrollHeight - window.innerHeight,
-      );
-
-      if (dy > 0) {
-        // Stage 1: Before scrolling inner content, align shell top with left picker
-        if (rect.top > targetTop + 2 && window.scrollY < maxPageScroll - 1) {
-          e.preventDefault();
-          const alignStep = Math.min(
-            rect.top - targetTop,
-            maxPageScroll - window.scrollY,
-          );
-          if (dy <= alignStep) {
-            window.scrollBy(0, dy);
-          } else {
-            window.scrollBy(0, alignStep);
-            const leftover = dy - alignStep;
-            if (scrollEl && maxInnerScroll > 1) {
-              scrollEl.scrollTop = Math.min(
-                maxInnerScroll,
-                scrollEl.scrollTop + leftover,
-              );
-            } else {
-              window.scrollBy(0, leftover);
-            }
-          }
-          return;
+    if (!el) return;
+    const cleanup = attachStickyWheelScroll(el, {
+      isDisabled: () => Boolean(props.expanded),
+      includeMobilePickerOffset: true,
+      getFallbackScrollEl: () => {
+        const nodes = el.querySelectorAll<HTMLElement>(
+          '[data-synergy-scroll="true"]',
+        );
+        for (let i = 0; i < nodes.length; i++) {
+          const node = nodes[i];
+          if (node && node.offsetParent !== null) return node;
         }
-
-        // Stage 2: Aligned — scroll inner content if it still has room
-        if (scrollEl && scrollEl.scrollTop < maxInnerScroll - 1) {
-          // If pointer is over the tab bar/header (outside scrollEl), forward to scrollEl
-          if (!scrollEl.contains(e.target as Node)) {
-            e.preventDefault();
-            scrollEl.scrollTop = Math.min(
-              maxInnerScroll,
-              scrollEl.scrollTop + dy,
-            );
-          }
-          return;
-        }
-        // Stage 3: Inner content reached bottom — let outer page scroll freely
-        return;
-      }
-
-      // dy < 0 (scrolling up)
-      // Stage 1 (reverse): If shell was pushed above targetTop (scrolled into footer), align back first
-      if (rect.top < targetTop - 2 && window.scrollY > 1) {
-        e.preventDefault();
-        const alignStep = Math.min(targetTop - rect.top, window.scrollY);
-        const absDy = -dy;
-        if (absDy <= alignStep) {
-          window.scrollBy(0, dy);
-        } else {
-          window.scrollBy(0, -alignStep);
-          const leftover = absDy - alignStep;
-          if (scrollEl && scrollEl.scrollTop > 1) {
-            scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop - leftover);
-          } else {
-            window.scrollBy(0, -leftover);
-          }
-        }
-        return;
-      }
-
-      // If shell is still below targetTop (spec table visible), let outer page scroll up freely
-      if (rect.top > targetTop + 2) {
-        if (scrollEl && scrollEl.scrollTop > 1 && scrollEl.contains(e.target as Node)) {
-          e.preventDefault();
-          window.scrollBy(0, dy);
-        }
-        return;
-      }
-
-      // Stage 2 (reverse): Aligned — scroll inner content back up to top
-      if (scrollEl && scrollEl.scrollTop > 1) {
-        if (!scrollEl.contains(e.target as Node)) {
-          e.preventDefault();
-          scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop + dy);
-        }
-        return;
-      }
-      // Stage 3 (reverse): Inner content at top — let outer page scroll up to spec table & navbar
-    };
-
-    el.addEventListener("wheel", onWheel, { passive: false });
-    onCleanup(() => el.removeEventListener("wheel", onWheel));
+        return null;
+      },
+    });
+    onCleanup(cleanup);
   });
 
   return (
