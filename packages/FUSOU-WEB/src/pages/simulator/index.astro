@@ -90,7 +90,7 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
     ],
   }}
 >
-  <Navigation filled={true} />
+  <Navigation filled={true} autoHide={true} />
   <PageShell paddingY="6" class="min-h-[calc(100vh-4rem)] flex flex-col justify-between">
     <!-- Mount point for SolidJS Simulator App -->
     <div id="simulator-tab-manager-root" class="flex-1 flex flex-col">

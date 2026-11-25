@@ -209,7 +209,7 @@ export function ShipCatalogPicker(props: ShipCatalogPickerProps): JSX.Element {
 
   const asideClasses = () =>
     props.asideClass ??
-    "hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-20 xl:h-[calc(100vh-5.5rem)]";
+    "hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-[var(--fusou-nav-offset,5rem)] xl:h-[calc(100vh-var(--fusou-nav-offset,5rem)-0.75rem)]";
 
   return (
     <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start xl:min-h-[calc(100vh-5.5rem)]">
@@ -293,7 +293,7 @@ export function ShipCatalogPicker(props: ShipCatalogPickerProps): JSX.Element {
         <div
           class={
             displayMode() === "sticky"
-              ? "sticky top-20 z-30 xl:hidden"
+              ? "sticky top-[var(--fusou-nav-offset,5rem)] z-30 xl:hidden"
               : "fixed bottom-4 left-4 z-40 xl:hidden max-w-[calc(100vw-2rem)]"
           }
         >

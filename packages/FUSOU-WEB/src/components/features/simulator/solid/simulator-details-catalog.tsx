@@ -987,7 +987,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
       <Show when={tab() === "equip"}>
         <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-          <aside class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-20 xl:h-[calc(100vh-5.5rem)]">
+          <aside class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-[var(--fusou-nav-offset,5rem)] xl:h-[calc(100vh-var(--fusou-nav-offset,5rem)-0.75rem)]">
             <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
               <select
                 class="select select-bordered select-sm w-full"
