@@ -40,6 +40,8 @@ const environment = {
 const literal = (value: unknown): string => value == null ? "NULL" : `'${String(value).replaceAll("'", "''")}'`;
 let authUser = { id: userId, is_anonymous: false };
 let unavailable = false;
+let redirectAuth = false;
+let authRequestRedirectMode: RequestRedirect | undefined;
 let beforeConsume: (() => void) | undefined;
 let consumeCalls = 0;
 
@@ -62,7 +64,16 @@ async function databaseFetch(input: RequestInfo | URL, init?: RequestInit): Prom
   const url = new URL(request.url);
   if (url.origin !== environment.PUBLIC_SUPABASE_URL) throw new Error("external network forbidden");
   if (unavailable) throw new TypeError("offline simulated transport failure");
-  if (url.pathname === "/auth/v1/user") return Response.json(authUser);
+  if (url.pathname === "/auth/v1/user") {
+    authRequestRedirectMode = request.redirect;
+    if (redirectAuth) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "https://redirect.invalid/auth/v1/user" },
+      });
+    }
+    return Response.json(authUser);
+  }
   if (url.pathname === "/rest/v1/user_devices") {
     const id = url.searchParams.get("device_id")?.replace(/^eq\./, "");
     const result = db.sql(`SELECT json_build_object(
@@ -142,6 +153,8 @@ beforeEach(() => {
   vi.stubGlobal("fetch", databaseFetch);
   authUser = { id: userId, is_anonymous: false };
   unavailable = false;
+  redirectAuth = false;
+  authRequestRedirectMode = undefined;
   beforeConsume = undefined;
   consumeCalls = 0;
   db.sql(`
@@ -379,6 +392,15 @@ describe("actual owner handlers, signatures, PostgreSQL transactions and Worker 
   it("fails closed on owner-service transport failure", async () => {
     unavailable = true;
     expect((await post("device-proof", await authenticationProof())).status).toBe(503);
+    expect(consumeCalls).toBe(0);
+  });
+
+  it("does not follow redirects from Supabase Auth", async () => {
+    redirectAuth = true;
+    const response = await post("device-proof", await authenticationProof());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "service_unavailable" });
+    expect(authRequestRedirectMode).toBe("manual");
     expect(consumeCalls).toBe(0);
   });
 

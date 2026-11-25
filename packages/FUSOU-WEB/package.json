@@ -14,6 +14,8 @@
     "generate:all": "pnpm run generate:rust-data && pnpm run generate:graph-data",
     "build": "pnpm run setup:rust-env && pnpm run build:deps && pnpm run generate:all && pnpm run check:security:dom && astro check && CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro build",
     "build.no.keys": "pnpm run setup:rust-env && pnpm run build:deps && pnpm run generate:all && pnpm run check:security:dom && astro check && CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -f .env --verbose --overload -- astro build",
+    "build:tlsn-testplay": "pnpm run setup:rust-env && pnpm run build:deps && pnpm run generate:all && pnpm run check:security:dom && node scripts/build-tlsn-testplay.mjs",
+    "init:tlsn-testplay-supabase": "node scripts/init-tlsn-testplay-supabase.mjs",
     "build:workers": "pnpm run build.no.keys && echo '_worker.js' > dist/.assetsignore",
     "deploy": "pnpm run build && echo '_worker.js' > dist/.assetsignore && wrangler deploy",
     "preview": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",

@@ -1024,11 +1024,17 @@ for (const kind of ["authentication", "possession"] as const) {
       if (!base.ok) return c.json({ error: "service_unavailable" }, 503);
       const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey, {
         global: {
-          fetch: (input, init) => fetch(input, {
-            ...init,
-            signal: AbortSignal.timeout(10_000),
-            redirect: "error",
-          }),
+          fetch: async (input, init) => {
+            const response = await fetch(input, {
+              ...init,
+              signal: AbortSignal.timeout(10_000),
+              redirect: "manual",
+            });
+            if (response.status >= 300 && response.status < 400) {
+              throw new TypeError("Supabase request unexpectedly redirected");
+            }
+            return response;
+          },
         },
       });
       const authenticated = await supabaseAdmin.auth.getUser(authorization.slice(7).trim());
