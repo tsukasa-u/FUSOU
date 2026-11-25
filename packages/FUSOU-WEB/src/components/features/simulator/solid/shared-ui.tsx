@@ -40,7 +40,6 @@ import type { MstShipData, MstSlotItemData, SlotUsageSummary } from "@/features/
 
 export { StatPill } from "@/components/common/solid/StatPill";
 import { StatPill } from "@/components/common/solid/StatPill";
-import { attachStickyWheelScroll } from "@/components/common/solid/sticky-scroll";
 // ── Cooperative Background Pre-Renderer ──────────────────────────────
 // Hydrates below-the-fold LazyRender blocks and ProgressiveGrid chunks
 // incrementally during browser idle slices so content is ready before the
@@ -739,7 +738,7 @@ export function DetailTabBar<T extends string>(props: {
     <div
       role="tablist"
       aria-label={props.ariaLabel ?? "詳細セクション切り替え"}
-      class="shrink-0 flex flex-wrap items-end gap-x-1 gap-y-0.5 px-2 pt-1.5 border-b border-base-300/80 bg-base-100"
+      class="shrink-0 flex flex-wrap items-end gap-x-1 gap-y-0.5 px-2 pt-1.5 border-b border-base-300/80"
     >
       <For each={props.tabs}>
         {(tab) => {
@@ -792,15 +791,12 @@ export function DetailTabBar<T extends string>(props: {
 }
 
 // ── DetailTabbedShell ────────────────────────────────────────────────
-// Sticky viewport-matched card container whose top/bottom borders align
-// pixel-for-pixel with the left catalog picker
-// (xl:sticky xl:top-[var(--fusou-nav-offset,5rem)] xl:h-[calc(100vh-var(--fusou-nav-offset,5rem)-0.75rem)]).
-// - Uses overflow-hidden so the rounded-xl corners are never clipped/overpainted.
-// - Keeps height constant across all tabs (including empty states).
-// - Coordinates wheel scrolling in 3 stages on desktop (xl):
-//   1. Align the shell top with the left catalog picker first.
-//   2. Once aligned, scroll the active tab's content internally.
-//   3. Once the tab content reaches its top/bottom edge, release to outer page scroll.
+// Pure-CSS sticky tab bar + unified page scrolling (zero JS scroll handlers).
+// - Only the tab bar sticks, aligned with the left catalog picker's top border
+//   (--fusou-nav-offset on xl, plus --fusou-mobile-picker-offset on mobile).
+// - Tab content flows naturally with the page so scrolling is 100% compositor-
+//   smooth everywhere and seamlessly continues into outer page scroll at the end.
+// - Enforces a viewport-matched min-height so empty/short tabs keep steady height.
 
 export function DetailTabbedShell<T extends string>(props: {
   tabs: DetailTabItem<T>[];
@@ -810,50 +806,17 @@ export function DetailTabbedShell<T extends string>(props: {
   expanded?: boolean | undefined;
   children: JSX.Element;
 }): JSX.Element {
-  let shellEl: HTMLDivElement | undefined;
-
-  onMount(() => {
-    const el = shellEl;
-    if (!el) return;
-    const cleanup = attachStickyWheelScroll(el, {
-      isDisabled: () => Boolean(props.expanded),
-      includeMobilePickerOffset: true,
-      getFallbackScrollEl: () => {
-        const nodes = el.querySelectorAll<HTMLElement>(
-          '[data-synergy-scroll="true"]',
-        );
-        for (let i = 0; i < nodes.length; i++) {
-          const node = nodes[i];
-          if (node && node.offsetParent !== null) return node;
-        }
-        return null;
-      },
-    });
-    onCleanup(cleanup);
-  });
-
   return (
-    <div
-      ref={shellEl}
-      class={`rounded-xl border border-base-300/70 bg-base-100 flex flex-col overflow-hidden ${
-        props.expanded
-          ? ""
-          : "sticky top-[calc(var(--fusou-nav-offset,5rem)+var(--fusou-mobile-picker-offset,0px))] h-[calc(100dvh-var(--fusou-nav-offset,5rem)-var(--fusou-mobile-picker-offset,0px)-0.75rem)] xl:top-[var(--fusou-nav-offset,5rem)] xl:h-[calc(100vh-var(--fusou-nav-offset,5rem)-0.75rem)]"
-      }`}
-    >
-      <DetailTabBar
-        tabs={props.tabs}
-        activeTab={props.activeTab}
-        onSelect={props.onSelect}
-        {...(props.ariaLabel !== undefined ? { ariaLabel: props.ariaLabel } : {})}
-      />
-      <div
-        class={
-          props.expanded
-            ? "p-3"
-            : "flex-1 min-h-0 flex flex-col p-3 overflow-hidden"
-        }
-      >
+    <div class="rounded-xl border border-base-300/70 bg-base-100 flex flex-col">
+      <div class="sticky top-[calc(var(--fusou-nav-offset,5rem)+var(--fusou-mobile-picker-offset,0px))] xl:top-[var(--fusou-nav-offset,5rem)] z-20 -mt-px -mx-px rounded-t-xl border-t border-x border-base-300/70 bg-base-100 before:content-[''] before:pointer-events-none before:absolute before:inset-x-0 before:-top-[15px] before:h-3.5 before:bg-base-100">
+        <DetailTabBar
+          tabs={props.tabs}
+          activeTab={props.activeTab}
+          onSelect={props.onSelect}
+          {...(props.ariaLabel !== undefined ? { ariaLabel: props.ariaLabel } : {})}
+        />
+      </div>
+      <div class="p-3 flex-1 flex flex-col min-h-[calc(100dvh-var(--fusou-nav-offset,5rem)-var(--fusou-mobile-picker-offset,0px)-4.5rem)] xl:min-h-[calc(100vh-var(--fusou-nav-offset,5rem)-4.5rem)]">
         {props.children}
       </div>
     </div>
@@ -861,9 +824,8 @@ export function DetailTabbedShell<T extends string>(props: {
 }
 
 // ── SynergyScrollBox ─────────────────────────────────────────────────
-// Scrollable inner body inside DetailTabbedShell. Fills the shell height,
-// scrolls internally when overflowing, and chains back to outer page scroll
-// naturally at the top/bottom boundary.
+// Titled content section inside DetailTabbedShell. Scrolls naturally with
+// the page while the tab bar stays pinned above it via pure CSS sticky.
 
 export function SynergyScrollBox(props: {
   id?: string;
@@ -876,13 +838,7 @@ export function SynergyScrollBox(props: {
   children: JSX.Element;
 }) {
   return (
-    <div
-      class={
-        props.expanded
-          ? "flex flex-col"
-          : "flex-1 min-h-0 flex flex-col"
-      }
-    >
+    <div class="flex-1 flex flex-col">
       <Show when={props.title}>
         <div class="shrink-0 mb-2 px-0.5">
           <h4
@@ -899,18 +855,8 @@ export function SynergyScrollBox(props: {
           </Show>
         </div>
       </Show>
-      <div
-        id={props.id}
-        data-synergy-scroll="true"
-        class={
-          props.expanded
-            ? "pr-1"
-            : "flex-1 min-h-0 overflow-y-auto pr-1"
-        }
-      >
-        <div class={props.contentClass ?? "space-y-3"}>
-          {props.children}
-        </div>
+      <div id={props.id} class={props.contentClass ?? "space-y-3"}>
+        {props.children}
       </div>
     </div>
   );

@@ -83,24 +83,16 @@ function EquipDetailPanel(props: {
   showMultiSynergy: boolean;
 }): JSX.Element {
   const searchQuery = useStore(simulatorSearchQuery);
-  let equipSynergyContainerRef!: HTMLDivElement;
-  const [equipMinHeight, setEquipMinHeight] = createSignal<number | null>(null);
 
   const [isSynergiesReady, setIsSynergiesReady] = createSignal(false);
   createEffect(() => {
     props.equip; // Track equip changes
-    if (equipSynergyContainerRef) {
-      setEquipMinHeight(equipSynergyContainerRef.offsetHeight);
-    }
     setIsSynergiesReady(false);
-    let minHeightTimer: ReturnType<typeof setTimeout> | undefined;
     const rafId = requestAnimationFrame(() => {
       setIsSynergiesReady(true);
-      minHeightTimer = setTimeout(() => setEquipMinHeight(null), 50);
     }); // Yield 1 frame to paint equip header first, then compute & hydrate in background
     onCleanup(() => {
       cancelAnimationFrame(rafId);
-      if (minHeightTimer !== undefined) clearTimeout(minHeightTimer);
     });
   });
 
@@ -871,11 +863,7 @@ function EquipDetailPanel(props: {
           ariaLabel="装備詳細セクション切り替え"
           expanded={isActiveTabExpanded()}
         >
-        <div
-          class="flex-1 min-h-0 flex flex-col"
-          ref={equipSynergyContainerRef}
-          style={{ "min-height": isActiveTabExpanded() && equipMinHeight() != null ? `${equipMinHeight()}px` : undefined }}
-        >
+        <div class="flex-1 min-h-0 flex flex-col">
         <Show
           when={isSynergiesReady()}
           fallback={

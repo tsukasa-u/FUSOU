@@ -6,7 +6,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  onCleanup,
   type JSX,
 } from "solid-js";
 import { VList, type VListHandle } from "virtua/solid";
@@ -16,7 +15,6 @@ import { bannerUrl } from "@/features/simulator/equip-calc";
 import { ShipListRow, type ShipListItem } from "@/components/common/solid/ship-list-row";
 import { ShipBanner } from "@/components/common/solid/ShipBanner";
 import { PickerQuickAccess } from "@/components/features/simulator/solid/picker-quick-access";
-import { attachStickyWheelScroll } from "./sticky-scroll";
 import { ItemPickerModal, type FlatPickerItem } from "@/components/features/simulator/solid/item-picker-modal";
 
 export type FlatShipPickerItem =
@@ -209,14 +207,6 @@ export function ShipCatalogPicker(props: ShipCatalogPickerProps): JSX.Element {
     }
   });
 
-  const [desktopAsideEl, setDesktopAsideEl] = createSignal<HTMLElement | undefined>();
-  createEffect(() => {
-    const el = desktopAsideEl();
-    if (!el) return;
-    const cleanup = attachStickyWheelScroll(el);
-    onCleanup(cleanup);
-  });
-
   const asideClasses = () =>
     props.asideClass ??
     "hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-[var(--fusou-nav-offset,5rem)] xl:h-[calc(100vh-var(--fusou-nav-offset,5rem)-0.75rem)]";
@@ -224,7 +214,7 @@ export function ShipCatalogPicker(props: ShipCatalogPickerProps): JSX.Element {
   return (
     <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start xl:min-h-[calc(100vh-5.5rem)]">
       {/* 1. デスクトップ Sticky Aside */}
-      <aside ref={setDesktopAsideEl} class={asideClasses()}>
+      <aside class={asideClasses()}>
         <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
           <select
             class="select select-bordered select-sm w-full"

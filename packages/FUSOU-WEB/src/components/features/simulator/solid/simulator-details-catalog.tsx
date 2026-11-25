@@ -47,7 +47,6 @@ import {
 } from "./shared-ui";
 import { ItemPickerModal } from "./item-picker-modal";
 import { ShipCatalogPicker } from "@/components/common/solid/ShipCatalogPicker";
-import { attachStickyWheelScroll } from "@/components/common/solid/sticky-scroll";
 import { PickerQuickAccess } from "./picker-quick-access";
 
 type DetailsTab = "ship" | "equip";
@@ -82,14 +81,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
   let equipPickerDialogRef!: HTMLDialogElement;
   const [mobilePickerDisplayMode, setMobilePickerDisplayMode] =
     createSignal<MobilePickerDisplayMode>("sticky");
-  const [equipAsideEl, setEquipAsideEl] = createSignal<HTMLElement | undefined>();
-
-  createEffect(() => {
-    const el = equipAsideEl();
-    if (!el || tab() !== "equip") return;
-    const cleanup = attachStickyWheelScroll(el);
-    onCleanup(cleanup);
-  });
 
   const allExpanded = createMemo(() => {
     const s = expandSettings();
@@ -1002,7 +993,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
       <Show when={tab() === "equip"}>
         <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-          <aside ref={setEquipAsideEl} class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-[var(--fusou-nav-offset,5rem)] xl:h-[calc(100vh-var(--fusou-nav-offset,5rem)-0.75rem)]">
+          <aside class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-[var(--fusou-nav-offset,5rem)] xl:h-[calc(100vh-var(--fusou-nav-offset,5rem)-0.75rem)]">
             <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
               <select
                 class="select select-bordered select-sm w-full"

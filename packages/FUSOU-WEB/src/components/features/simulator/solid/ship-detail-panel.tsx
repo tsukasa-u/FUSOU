@@ -672,9 +672,6 @@ function ShipDetailPanel(props: {
   });
 
 
-  let shipSynergyContainerRef!: HTMLElement;
-  const [shipMinHeight, setShipMinHeight] = createSignal<number | null>(null);
-
   const [isSynergiesReady, setIsSynergiesReady] = createSignal(false);
   const deferredSynergies = createMemo(() => {
     if (!isSynergiesReady()) return null;
@@ -798,18 +795,12 @@ function ShipDetailPanel(props: {
 
   createEffect(() => {
     props.ship; // Track ship changes
-    if (shipSynergyContainerRef) {
-      setShipMinHeight(shipSynergyContainerRef.offsetHeight);
-    }
     setIsSynergiesReady(false);
-    let minHeightTimer: ReturnType<typeof setTimeout> | undefined;
     const rafId = requestAnimationFrame(() => {
       setIsSynergiesReady(true);
-      minHeightTimer = setTimeout(() => setShipMinHeight(null), 50);
     }); // Yield 1 frame to paint ship header first, then compute & hydrate in background
     onCleanup(() => {
       cancelAnimationFrame(rafId);
-      if (minHeightTimer !== undefined) clearTimeout(minHeightTimer);
     });
   });
 
@@ -1079,8 +1070,6 @@ function ShipDetailPanel(props: {
 
         <section
           class={activeTab() === "equippable" ? "hidden" : "flex-1 min-h-0 flex flex-col"}
-          ref={shipSynergyContainerRef}
-          style={{ "min-height": isActiveTabExpanded() && shipMinHeight() != null ? `${shipMinHeight()}px` : undefined }}
         >
           <Show
             when={deferredSynergies()}
