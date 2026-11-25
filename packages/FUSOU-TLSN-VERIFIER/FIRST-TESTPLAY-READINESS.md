@@ -1,5 +1,35 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Hosted CI run 45674634194 and local Queue source fix
+
+[Candidate run 45674634194](https://github.com/tsukasa-u/FUSOU/actions/runs/45674634194)
+failed at source `4e67163b28be4c952ad917604ec1953a611fa1cc`.
+The [node-contract-tests job](https://github.com/tsukasa-u/FUSOU/actions/runs/45674634194/job/139418769935)
+failed at step 28 with 74 passing tests and one failure.
+The Proxy and Rust preflight jobs succeeded. Steps 29 through 35 and the
+Linux verification APP artifact job were skipped.
+
+The release source inventory omitted three tracked imports of the Verification
+Worker entrypoint. The import closure reported `production_queue_receipt.js`
+first. The repair includes `production_queue_receipt.ts`, `execution-mode.ts`,
+and `queue-policy.ts` in the release source inventory and verifies that
+omitting any one of them still blocks the release source check.
+
+Node 22.16.0 reproduced the original missing import. After the repair, Worker
+typecheck and all 75 step 28 tests passed. In an isolated source copy,
+the Freshness and readiness checks passed, including the Gateway runtime,
+73 Coordinator runtime cases and 112 contract tests. The contract suite
+compiled the APP and exercised its Freshness verifier. The Queue receipt
+suite passed 3 tests, the isolated APP Manifest harness passed 45 tests,
+and the APP build handoff and Worker reference suite passed 113 tests.
+The tracked lockfile guard, offline locked fetch and Manifest vector check
+also passed. The Linux artifact job was not rerun.
+
+A supplemental release check outside the failed workflow reproduced the same
+17 failures before and after the fix. Its first failure is an APP bootstrap
+report field inventory mismatch. The candidate repair's Hosted CI is
+`NOT_CHECKED`. Stage A/B/C and Production acceptance remain `BLOCKED`.
+
 ## Native Linux APP finalizes and independently verifies a local 19-role Bundle — 2026-11-26
 
 **LOCAL_APP_19_ROLE_BUNDLE_VERIFIED.** A fresh capture from the candidate

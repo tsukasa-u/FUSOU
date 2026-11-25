@@ -24,11 +24,21 @@ test("restored actual source has a parse-only closed import graph; semantics and
   assert.ok(result.import_closure.dependencies[`${WORKER_ROOT}/src/index.ts`].includes("hono"));
   assert.ok(result.import_closure.dependencies[`${WORKER_ROOT}/src/device-proof-client.ts`]
     .includes("./device-proof-framing.ts"));
-  const framingPath = `${WORKER_ROOT}/src/device-proof-framing.ts`;
-  const framing = files.get(framingPath);
-  files.delete(framingPath);
-  assert.deepEqual(inspectWorkerSource(files, sourceSha).missing_paths, [framingPath]);
-  files.set(framingPath, framing);
+  const entryImports = result.import_closure.dependencies[`${WORKER_ROOT}/src/index.ts`];
+  const queueModules = ["execution-mode", "queue-policy", "production_queue_receipt"];
+  for (const moduleName of queueModules) {
+    assert.ok(entryImports.includes(`./${moduleName}.js`));
+    assert.ok(result.source_inputs[`${WORKER_ROOT}/src/${moduleName}.ts`]);
+  }
+  for (const moduleName of ["device-proof-framing", ...queueModules]) {
+    const path = `${WORKER_ROOT}/src/${moduleName}.ts`;
+    const bytes = files.get(path);
+    files.delete(path);
+    const incomplete = inspectWorkerSource(files, sourceSha);
+    assert.equal(incomplete.status, "BLOCKED_IMPLEMENTATION");
+    assert.deepEqual(incomplete.missing_paths, [path]);
+    files.set(path, bytes);
+  }
   assert.deepEqual(Object.keys(JSON.parse(files.get(`${WORKER_ROOT}/package.json`)).scripts).sort(),
     ["build:wasm", "typecheck", "verify:wasm-provenance"]);
   files.delete(`${WORKER_ROOT}/src/binding_authority.ts`);

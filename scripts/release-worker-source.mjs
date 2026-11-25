@@ -15,6 +15,7 @@ export const WORKER_SOURCE_PATHS = Object.freeze([
   ...["package.json", "wrangler.toml", "tsconfig.json", "src/index.ts", "src/binding_authority.ts",
     "src/device-proof-client.ts", "src/device-proof-framing.ts",
     "src/attestation_receipts.ts", "src/direct_verifier.ts", "src/execution_boundary.ts",
+    "src/execution-mode.ts", "src/queue-policy.ts", "src/production_queue_receipt.ts",
     "src/result_archive.ts", "src/verification_jobs.ts", "src/verifier_identity.ts",
     "src/private_key_validation_cache.ts", "src/origin-trust-contract.mjs", "src/origin-trust-contract.d.mts",
     "src/result-registry-contract.mjs", "src/result-registry-contract.d.mts",
