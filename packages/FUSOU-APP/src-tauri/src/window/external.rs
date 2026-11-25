@@ -2020,6 +2020,17 @@ pub fn create_external_window(app: &AppHandle) {
         .initialization_script_for_all_frames(init_script);
     #[cfg(dev)]
     let external = external.devtools(true);
+    let external = if let Some(icon) = app.default_window_icon() {
+        match external.icon(icon.clone()) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("failed to set default window icon on external window: {}", e);
+                return;
+            }
+        }
+    } else {
+        external
+    };
 
     let external_result = external
         .build()

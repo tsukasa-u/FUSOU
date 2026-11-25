@@ -11,6 +11,17 @@ pub fn create_separate_main_window(app: &AppHandle, show_immediately: bool) {
     .use_https_scheme(true)
     .visible(show_immediately);
     let builder = crate::window::common::configure_frameless_window(builder);
+    let builder = if let Some(icon) = app.default_window_icon() {
+        match builder.icon(icon.clone()) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("failed to set default window icon on main window: {}", e);
+                return;
+            }
+        }
+    } else {
+        builder
+    };
 
     match builder.build() {
         Ok(window) => {

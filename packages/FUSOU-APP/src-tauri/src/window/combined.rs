@@ -233,6 +233,20 @@ pub fn create_combined_window(app: &AppHandle, show_immediately: bool) {
         .background_color(COMBINED_BG_DARK)
         .inner_size(init_w, init_h)
         .min_inner_size(640.0, 420.0);
+    let builder = if let Some(icon) = app.default_window_icon() {
+        match builder.icon(icon.clone()) {
+            Ok(b) => b,
+            Err(err) => {
+                tracing::warn!(
+                    "failed to set default window icon on combined window: {}",
+                    err
+                );
+                return;
+            }
+        }
+    } else {
+        builder
+    };
 
     let window = match builder.build() {
         Ok(win) => win,
@@ -287,7 +301,21 @@ pub fn create_combined_window(app: &AppHandle, show_immediately: bool) {
         if let Err(err) = window.show() {
             tracing::error!("failed to show combined window: {}", err);
         }
+        crate::window::common::refresh_window_taskbar_icon(&window);
         ensure_combined_maximized(&window);
+
+        // Re-apply WM_SETICON once the event loop is pumping messages so Windows Explorer's
+        // taskbar updates immediately even if HSHELL_WINDOWCREATED fired during setup().
+        let app_for_icon = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(120)).await;
+            let app_on_main = app_for_icon.clone();
+            let _ = app_for_icon.run_on_main_thread(move || {
+                if let Some(win) = app_on_main.get_window(COMBINED_WINDOW_LABEL) {
+                    crate::window::common::refresh_window_taskbar_icon(&win);
+                }
+            });
+        });
     }
 
     sync_combined_layout_internal(app, true);
