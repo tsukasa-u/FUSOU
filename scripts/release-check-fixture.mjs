@@ -2,7 +2,8 @@
 import { createHash } from "node:crypto";
 import { consumerFixture } from "./release-consumer-fixture.mjs";
 import { WORKER_SOURCE_PATHS, WORKER_ROOT, inspectWorkerSource, encodeUnsignedWorkerPackage } from "./release-worker-source.mjs";
-import { ENTRY_INPUT_CONTRACT, entryInputSha256, runtimeConfigBootstrapReport } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs";
+import { APP_COMPILED_REPORT_FLAGS, ENTRY_INPUT_CONTRACT, runtimeConfigBootstrapReport,
+  runtimeConfigBootstrapSha256 } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs";
 import { publicAppConfigurationSha256 } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-public-configuration.mjs";
 import { sha256 } from "./release-bytes.mjs";
 import { nativeResourceFixtureBudget } from "./release-native-attestation-fixture.mjs";
@@ -78,9 +79,8 @@ export async function checkFixture() {
   };
   const app = f.report.build.artifacts[0], detail = JSON.parse(f.files.get(app.build_record_file)).details;
   Object.assign(detail, { rust_toolchain: publicBuildInputs.rust_toolchain, cargo_lock_sha256: sha256(sourceFiles.get(LOCK_PATHS[1])),
-    compiled_report: { schema_version: 2, scope: "fusou-tlsn-app-compiled-worker-entry-report",
-      entry_input_sha256: entryInputSha256(reference.compile_inputs),
-      worker_source_sha: sourceSha, active_version_id: reference.cloudflare.version_id, app_source_sha: sourceSha,
+    runtime_config_bootstrap: bootstrap, runtime_config_bootstrap_sha256: runtimeConfigBootstrapSha256(bootstrap),
+    compiled_report: { schema_version: 1, scope: "fusou-tlsn-app-compiled-bootstrap-report-v1", app_source_sha: sourceSha,
       build_profile: "release", tlsn_production_feature: true, custom_protocol_feature: true,
       runtime_config_bootstrap: bootstrap, authority_status: "UNVERIFIED" },
     compiled_public_configuration: { schema_version: 1, scope: "fusou-app-compiled-public-configuration-report",
@@ -88,10 +88,9 @@ export async function checkFixture() {
       discord_client_id_present: false, authority_status: "UNVERIFIED" } });
   updateArtifact(app, f.files.get(app.file), detail);
   const reports = {};
-  for (const [role, flag, data] of [["worker", "--tlsn-compiled-worker-entry", detail.compiled_report],
-    ["public", "--app-compiled-public-configuration", detail.compiled_public_configuration]]) {
+  for (const [role, data] of [["worker", detail.compiled_report], ["public", detail.compiled_public_configuration]]) {
     const raw = jsonBytes(data); rawEvidence.set(sha256(raw), raw);
-    reports[role] = { argv: [flag], exit_code: 0, stdout_sha256: sha256(raw), executable_sha256: app.sha256 };
+    reports[role] = { argv: [APP_COMPILED_REPORT_FLAGS[role]], exit_code: 0, stdout_sha256: sha256(raw), executable_sha256: app.sha256 };
   }
   observations.set(app.name, jsonBytes({ schema_version: 1, scope: "fusou-app-compiled-execution-observations-v1", ...context,
     executable_sha256: app.sha256, reports, app_build_record_sha256: sha256(wrappers.get(app.name)),

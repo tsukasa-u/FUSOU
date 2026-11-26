@@ -24,10 +24,10 @@ export function assertProducerRun(run, runId, attempt) {
     run.status === "completed" && run.conclusion === "success", "producer run identity/attempt/status");
 }
 export function assertAppBuildRecordBinding(record, { sourceSha, workerVersionId, artifactBytes }) {
-  requireRelease(record?.schema_version === 3 && record.scope === "fusou-tlsn-app-operator-build-record" &&
+  requireRelease(record?.schema_version === 4 && record.scope === "fusou-tlsn-app-operator-build-record" &&
     record.app_source_sha === sourceSha && record.worker_source_sha === sourceSha &&
     record.active_version_id === workerVersionId && record.artifact?.sha256 === sha256(artifactBytes) &&
-    record.artifact.byte_length === artifactBytes.byteLength && record.compiled_input_comparison === "VERIFIED" &&
+    record.artifact.byte_length === artifactBytes.byteLength && record.worker_reference_validation === "VERIFIED" &&
     record.runtime_config_bootstrap_comparison === "VERIFIED" && record.public_app_configuration_comparison === "VERIFIED" &&
     record.authority_status === "UNVERIFIED", "detailed APP record/source/Worker/output binding");
 }

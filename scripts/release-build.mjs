@@ -20,7 +20,7 @@ export function assertLocalBuildCheckExecution(proof, { build, check, recordRaw,
 
 async function buildUnsignedApp({ inputs, eligibility, workspace, sourceToken }) {
   const {
-    buildApprovedApp, assertBuildReference, runtimeConfigBootstrapInputs, runPublicBuildCommand,
+    APP_COMPILED_REPORT_FLAGS, buildApprovedApp, assertBuildReference, runtimeConfigBootstrapInputs, runPublicBuildCommand,
   } = await import("../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs");
   const { validatePublicAppInputs } = await import("../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-public-configuration.mjs");
   const reference = assertBuildReference(inputs.worker_reference, eligibility.commit_sha);
@@ -70,8 +70,8 @@ async function buildUnsignedApp({ inputs, eligibility, workspace, sourceToken })
     toolchain: inputs.rust_toolchain, environment: { ...toolEnv, ...bootstrap },
   }, {
     run: (command, args, options) => {
-      const kind = args.length === 1 && args[0] === "--tlsn-compiled-worker-entry" ? "worker" :
-        args.length === 1 && args[0] === "--app-compiled-public-configuration" ? "public" : null;
+      const kind = args.length === 1 ? Object.keys(APP_COMPILED_REPORT_FLAGS)
+        .find((role) => APP_COMPILED_REPORT_FLAGS[role] === args[0]) : undefined;
       const readExecutable = () => {
         if (!resolve(command).startsWith(`${root}${sep}`)) throw new Error("compiled report executable escaped workspace");
         const fd = openSync(command, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -102,6 +102,7 @@ async function buildUnsignedApp({ inputs, eligibility, workspace, sourceToken })
       },
     }),
   });
+  if (!reports.worker || !reports.public) throw new Error("missing compiled APP report observation");
   for (const [path, before] of sourceFiles) {
     if (!before.equals(await readRegularFile(join(source, path)))) throw new Error("release dependency input changed during build");
   }

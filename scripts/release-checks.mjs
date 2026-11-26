@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
 import {
-  assertCompiledReport, assertCompiledPublicConfiguration, runtimeConfigBootstrapReport, entryInputSha256,
+  APP_COMPILED_REPORT_FLAGS, assertCompiledReport, assertCompiledPublicConfiguration, runtimeConfigBootstrapReport,
+  runtimeConfigBootstrapSha256, entryInputSha256,
 } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs";
 import { sha256 } from "./release-bytes.mjs";
 import { requireRelease, parseReleaseRecord, assertArtifactBuildProof } from "./release-build-proof.mjs";
@@ -175,9 +176,11 @@ export function recordCompiledInputsExecution({ context, publicBuildInputs, arti
       observation.app_build_record_sha256 === sha256(raw) && observation.executable_sha256 === artifact.sha256 &&
       observation.public_build_inputs_sha256 === sha256(jsonBytes(publicBuildInputs)), "actual APP report observation identity");
     const metadata = { executable_sha256: artifact.sha256 };
-    for (const role of ["worker", "public"]) {
-      const report = observation.reports[role], stdout = rawEvidence.get(report.stdout_sha256);
-      requireRelease(report.exit_code === 0 && stdout instanceof Uint8Array && sha256(stdout) === report.stdout_sha256 &&
+    for (const [role, flag] of Object.entries(APP_COMPILED_REPORT_FLAGS)) {
+      const report = observation.reports?.[role];
+      requireRelease(report?.exit_code === 0 && isDeepStrictEqual(report.argv, [flag]), "actual APP report command/exit");
+      const stdout = rawEvidence.get(report.stdout_sha256);
+      requireRelease(stdout instanceof Uint8Array && sha256(stdout) === report.stdout_sha256 &&
         report.executable_sha256 === artifact.sha256, "actual APP report process result");
       metadata[role] = { argv: report.argv, exit_code: report.exit_code, stdout_sha256: report.stdout_sha256 };
       inputs.set(`stdout_${artifact.name}_${role}`, stdout);
@@ -236,18 +239,20 @@ export async function verifyCompiledInputs({ inputs, receipt, build, payload, pu
     expected.set(`record_${artifact.name}`, raw);
     if (artifact.role === "app") {
       requireRelease(d.rust_toolchain === publicBuildInputs.rust_toolchain, "compiled Rust toolchain");
-      assertCompiledReport(d.compiled_report, publicBuildInputs.worker_reference, context.source_sha, "release", bootstrap);
+      assertCompiledReport(d.compiled_report, context.source_sha, "release", bootstrap);
+      requireRelease(isDeepStrictEqual(d.runtime_config_bootstrap, bootstrap) &&
+        d.runtime_config_bootstrap_sha256 === runtimeConfigBootstrapSha256(bootstrap), "compiled bootstrap record/digest");
       assertCompiledPublicConfiguration(d.compiled_public_configuration, publicBuildInputs.public_app_inputs);
       const observations = receipt.output.app_reports?.[artifact.name];
       requireRelease(observations?.executable_sha256 === artifact.sha256, "compiled report executable digest");
-      for (const [role, flag, value] of [
-        ["worker", "--tlsn-compiled-worker-entry", d.compiled_report],
-        ["public", "--app-compiled-public-configuration", d.compiled_public_configuration],
+      for (const [role, value] of [
+        ["worker", d.compiled_report],
+        ["public", d.compiled_public_configuration],
       ]) {
         const stdout = inputs.get(`stdout_${artifact.name}_${role}`);
         requireRelease(stdout instanceof Uint8Array && isDeepStrictEqual(JSON.parse(Buffer.from(stdout)), value) &&
           observations[role]?.stdout_sha256 === sha256(stdout) && observations[role].exit_code === 0 &&
-          isDeepStrictEqual(observations[role].argv, [flag]), "compiled report actual stdout/command");
+          isDeepStrictEqual(observations[role].argv, [APP_COMPILED_REPORT_FLAGS[role]]), "compiled report actual stdout/command");
         expected.set(`stdout_${artifact.name}_${role}`, stdout);
       }
     } else {

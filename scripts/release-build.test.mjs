@@ -25,11 +25,11 @@ function fixture(root) {
     recheckEligibility: async () => { checks++; return structuredClone(eligibility); },
     buildApp: async () => { builds++; return {
       artifactPath: join(root, "synthetic.bin"), record: {
-        schema_version: 3, scope: "fusou-tlsn-app-operator-build-record",
+        schema_version: 4, scope: "fusou-tlsn-app-operator-build-record",
         app_source_sha: eligibility.commit_sha, worker_source_sha: eligibility.commit_sha,
         active_version_id: inputs.worker_reference.cloudflare.version_id,
         artifact: { sha256: sha256(bytes), byte_length: bytes.length },
-        compiled_input_comparison: "VERIFIED", runtime_config_bootstrap_comparison: "VERIFIED",
+        worker_reference_validation: "VERIFIED", runtime_config_bootstrap_comparison: "VERIFIED",
         public_app_configuration_comparison: "VERIFIED", authority_status: "UNVERIFIED",
       },
     }; },
@@ -123,6 +123,13 @@ test("artifact corruption, Worker mismatch, escaped output and post-build tag mo
   for (const mutate of [
     (f) => { f.deps.readArtifact = async () => Buffer.from("changed"); },
     (f) => { const build = f.deps.buildApp; f.deps.buildApp = async () => {
+      const result = await build();
+      result.record.schema_version = 3;
+      result.record.compiled_input_comparison = "VERIFIED";
+      delete result.record.worker_reference_validation;
+      return result;
+    }; },
+    (f) => { const build = f.deps.buildApp; f.deps.buildApp = async () => {
       const result = await build(); result.record.active_version_id = "other"; return result;
     }; },
     (f) => { const build = f.deps.buildApp; f.deps.buildApp = async () => {
@@ -148,7 +155,7 @@ test("injected process observations produce exact sidecars without inventing ful
       return { ...result, execution: { sourceFiles: locks, pnpmVersion: "10.0.0",
         commands: [{ argv: ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"], exit_code: 0 },
           { argv: ["pnpm", "exec", "tauri", "build", "--ci", "--no-bundle", "--features", "tlsn-production,custom-protocol", "--", "--locked"], exit_code: 0 }],
-        reports: { worker: { raw: stdout, argv: ["--tlsn-compiled-worker-entry"], exit_code: 0,
+        reports: { worker: { raw: stdout, argv: ["--tlsn-compiled-bootstrap"], exit_code: 0,
           stdout_sha256: sha256(stdout), executable_sha256: result.record.artifact.sha256 } } } };
     };
     const result = await generateReleaseBuild(f.options, f.deps);
@@ -156,6 +163,7 @@ test("injected process observations produce exact sidecars without inventing ful
     assert.equal(result.check_files.includes("check-compiled_inputs.json"), false);
     const observation = JSON.parse(await readFile(join(root, "outputs/app-compiled-observations.json")));
     assert.equal(observation.run_id, f.options.runId); assert.equal(observation.run_attempt, f.options.runAttempt);
+    assert.deepEqual(observation.reports.worker.argv, ["--tlsn-compiled-bootstrap"]);
     assert.equal(observation.reports.worker.stdout_sha256, sha256(stdout));
     assert.deepEqual(await readFile(join(root, `outputs/evidence-${sha256(stdout)}.bin`)), stdout);
     assert.equal(result.artifact_status, "NOT_CHECKED");

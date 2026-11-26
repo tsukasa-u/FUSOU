@@ -14,8 +14,8 @@ function install(f, check, execution) {
     if (name.startsWith("evidence-")) f.args.evidenceBytes.set(sha256(raw), raw);
   }
 }
-function replaceWorker(f, change) {
-  const claim = f.report.build.artifacts.find((a) => a.role === "worker");
+function replaceBuild(f, role, change) {
+  const claim = f.report.build.artifacts.find((a) => a.role === role);
   const wrapper = JSON.parse(f.files.get(claim.build_record_file));
   const raw = change(wrapper.details, f.files.get(claim.file)) ?? f.files.get(claim.file);
   wrapper.artifact_sha256 = sha256(raw); wrapper.byte_length = raw.length;
@@ -28,7 +28,7 @@ function replaceWorker(f, change) {
   f.files.set("release-report.json", jsonBytes(f.report)); f.sync();
   const receipt = JSON.parse(f.compiled.receipt);
   const inputs = new Map(Object.entries(receipt.inputs).map(([name, value]) => [name, f.args.evidenceBytes.get(value.sha256)]));
-  inputs.set("record_worker", record);
+  inputs.set(`record_${claim.name}`, record);
   install(f, "compiled_inputs", recordCheckExecution("compiled_inputs", f.context, inputs, receipt.output));
   f.args.build = verifyProducerBuild({ run: f.run, eligibility: f.eligibility, files: f.files,
     origin: { ...f.metadata(), run_id: f.run.id, workflow_sha: f.run.head_sha } });
@@ -126,7 +126,7 @@ test("independently pinned Worker toolchain and source snapshot reject mismatche
 for (const mutation of ["version", "source", "commands", "import_closure", "dummy_bundle", "empty_wasm"]) {
   test(`valid outer build hashes do not hide Worker ${mutation} mismatch`, async () => {
     const f = await checkFixture();
-    replaceWorker(f, (details, bytes) => {
+    replaceBuild(f, "worker", (details, bytes) => {
       if (mutation === "version") details.version_reference.active_version_id = "other";
       if (mutation === "source") details.source_inputs_sha256 = "0".repeat(43);
       if (mutation === "commands") details.commands.pop();
@@ -174,12 +174,21 @@ test("missing generated WASM raw evidence and foreign archive release source fai
 });
 test("APP actual stdout arguments and independently pinned policy release identity are enforced", async () => {
   const f = await checkFixture(), receipt = JSON.parse(f.compiled.receipt);
-  receipt.output.app_reports.app.worker.argv = ["--version"];
   const inputs = new Map(Object.entries(receipt.inputs).map(([name, d]) => [name, f.args.evidenceBytes.get(d.sha256)]));
-  install(f, "compiled_inputs", recordCheckExecution("compiled_inputs", f.context, inputs, receipt.output));
-  await assert.rejects(verifyReleaseChecks(f.args, f.config), /stdout\/command/);
+  for (const flag of ["--version", "--tlsn-compiled-worker-entry"]) {
+    receipt.output.app_reports.app.worker.argv = [flag];
+    install(f, "compiled_inputs", recordCheckExecution("compiled_inputs", f.context, inputs, receipt.output));
+    await assert.rejects(verifyReleaseChecks(f.args, f.config), /stdout\/command/);
+  }
   const other = await checkFixture(), policy = jsonBytes({ ...other.checkPolicy, source_sha: "c".repeat(40) });
   await assert.rejects(verifyReleaseChecks(other.args, { ...other.config, checkPolicyBytes: policy, checkPolicySha256: sha256(policy) }), /policy repository\/source/);
+});
+test("rehashing the APP build record cannot substitute a different bootstrap digest", async () => {
+  const f = await checkFixture();
+  replaceBuild(f, "app", (details) => {
+    details.runtime_config_bootstrap_sha256 = sha256(Buffer.from("different bootstrap"));
+  });
+  await assert.rejects(verifyReleaseChecks(f.args, f.config), /compiled bootstrap record\/digest/);
 });
 test("archive capture calls a backend and rejects changed stored bytes", async () => {
   const f = await checkFixture(); let calls = 0;

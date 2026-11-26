@@ -1,5 +1,18 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## APP release tag contract repair
+
+[Candidate run #145](https://github.com/tsukasa-u/FUSOU/actions/runs/45682873014)
+passed all four jobs at `97d5729d877aa3a9168ac80af1a13020c1ad74ac`,
+including the Queue source check and Linux verification APP artifact upload.
+The separate release tag contract reproduced 17 failures at that revision.
+The release producer and consumer now use the APP's current Bootstrap report
+command and schema-4 build record. The consumer checks the pinned Bootstrap
+inputs and digest and still verifies the Worker reference independently.
+Node 22.16.0 passed all 174 tag contract tests, 113 candidate APP handoff
+and Worker reference tests, and 75 candidate Worker proof and replay tests.
+The repair's Hosted CI and actual release execution are `NOT_CHECKED`.
+
 ## Hosted CI run 45674634194 and local Queue source fix
 
 [Candidate run 45674634194](https://github.com/tsukasa-u/FUSOU/actions/runs/45674634194)

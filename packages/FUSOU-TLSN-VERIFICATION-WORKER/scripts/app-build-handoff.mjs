@@ -12,6 +12,11 @@ import {
 } from "./app-public-configuration.mjs";
 
 export const ENTRY_INPUT_CONTRACT = JSON.parse(await readFile(new URL("./app-worker-entry-input-contract-v1.json", import.meta.url), "utf8"));
+// The release observation keeps the existing "worker" role for the APP bootstrap report.
+export const APP_COMPILED_REPORT_FLAGS = Object.freeze({
+  worker: "--tlsn-compiled-bootstrap",
+  public: "--app-compiled-public-configuration",
+});
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("base64url");
 const shaPattern = /^[0-9a-f]{40}$/;
 const digestPattern = /^[A-Za-z0-9_-]{43}$/;
@@ -391,10 +396,11 @@ export async function buildApprovedApp({
   const artifactStat = await lstat(artifactPath);
   if (!artifactStat.isFile() || artifactStat.isSymbolicLink()) throw new Error("built APP artifact is not a regular file");
   const artifactBytes = await readFile(artifactPath);
-  const compiledReport = parseJson(run(artifactPath, ["--tlsn-compiled-bootstrap"], { cwd: appDirectory, env }), "compiled APP bootstrap report");
+  const compiledReport = parseJson(run(artifactPath, [APP_COMPILED_REPORT_FLAGS.worker],
+    { cwd: appDirectory, env }), "compiled APP bootstrap report");
   const expectedBootstrapReport = runtimeConfigBootstrapReport(bootstrapInputs);
   assertCompiledReport(compiledReport, expectedAppSha, profile, expectedBootstrapReport);
-  const compiledPublicConfiguration = parseJson(run(artifactPath, ["--app-compiled-public-configuration"],
+  const compiledPublicConfiguration = parseJson(run(artifactPath, [APP_COMPILED_REPORT_FLAGS.public],
     { cwd: appDirectory, env }), "compiled APP public configuration report");
   assertCompiledPublicConfiguration(compiledPublicConfiguration, publicInputs);
   await unchanged();

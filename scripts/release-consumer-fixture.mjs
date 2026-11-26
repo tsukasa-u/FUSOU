@@ -21,10 +21,10 @@ export function consumerFixture({ includeWorker = true } = {}) {
     const detail = recordBytes({ schema_version: 1, scope: "fusou-release-artifact-build-record-v1", ...context,
       artifact_sha256: sha256(raw), byte_length: raw.length, worker_version_id: version,
       details: role === "app" ? {
-        schema_version: 3, scope: "fusou-tlsn-app-operator-build-record",
+        schema_version: 4, scope: "fusou-tlsn-app-operator-build-record",
         app_source_sha: commit, worker_source_sha: commit, active_version_id: version,
         artifact: { sha256: sha256(raw), byte_length: raw.length }, authority_status: "UNVERIFIED",
-        compiled_input_comparison: "VERIFIED", runtime_config_bootstrap_comparison: "VERIFIED",
+        worker_reference_validation: "VERIFIED", runtime_config_bootstrap_comparison: "VERIFIED",
         public_app_configuration_comparison: "VERIFIED",
       } : { synthetic: true } });
     const provenance = recordBytes({ schema_version: 1, scope: "fusou-release-build-provenance-v1",
