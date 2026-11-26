@@ -429,10 +429,13 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await page.locator("#sim-tab-btn-ship").click();
     await expect(page.locator("#ship-detail-equippable-list")).toBeVisible();
 
-    const beforeOverflowY = await page
-      .locator("#ship-detail-equippable-list")
-      .evaluate((el) => getComputedStyle(el as HTMLElement).overflowY);
-    expect(beforeOverflowY).toBe("auto");
+    const shipTabList = page.getByRole("tablist", {
+      name: "艦詳細セクション切り替え",
+    });
+    await expect(shipTabList).toBeVisible();
+    await expect(
+      shipTabList.getByRole("tab", { name: /^装備可能/ }),
+    ).toHaveAttribute("aria-selected", "true");
 
     const shipAsideLayout = await page
       .locator("aside")
@@ -443,7 +446,7 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
         return {
           position: styles.position,
           height: h,
-          expected: window.innerHeight - 88,
+          expected: window.innerHeight - 24,
         };
       });
     expect(shipAsideLayout.position).toBe("sticky");
@@ -465,21 +468,7 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await expect(expandEquippableCheckbox).toBeChecked();
     await page.getByRole("button", { name: "閉じる" }).click();
 
-    await expect
-      .poll(async () =>
-        page
-          .locator("#ship-detail-equippable-list")
-          .evaluate((el) => ({
-            overflowY: getComputedStyle(el as HTMLElement).overflowY,
-            className: (el as HTMLElement).className,
-          })),
-      )
-      .toEqual(
-        expect.objectContaining({
-          overflowY: "visible",
-        }),
-      );
-
+    await expect(page.locator("#ship-detail-equippable-list")).toBeVisible();
     await expect(page.locator("#ship-detail-equippable-list")).not.toHaveClass(
       /max-h-\[40vh\]/,
     );
@@ -490,14 +479,21 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await ensureTutorialClosed(page);
 
     await page.locator("#sim-tab-btn-equip").click();
-    await expect(page.locator("#equip-detail-synergy-ships-list")).toBeVisible();
+    const equipTabList = page.getByRole("tablist", {
+      name: "装備詳細セクション切り替え",
+    });
+    await expect(equipTabList).toBeVisible();
+    await expect(page.locator("#equip-detail-compatible-list")).toBeVisible();
+
     await page
       .locator("aside")
       .getByRole("button", { name: /テスト装備B ID 2/ })
       .first()
       .click();
+
+    await equipTabList.getByRole("tab", { name: /^シナジー艦/ }).click();
     const synergyList = page.locator("#equip-detail-synergy-ships-list");
-    await synergyList.scrollIntoViewIfNeeded();
+    await expect(synergyList).toBeVisible();
     await expect
       .poll(async () => {
         const text = (await synergyList.textContent()) ?? "";
@@ -505,7 +501,12 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
       })
       .toBe(true);
 
-    await expect(page.getByText("この装備を含む多装備シナジー")).toBeVisible();
+    const tripleTab = equipTabList.getByRole("tab", { name: /^3装備/ });
+    await expect(tripleTab).toBeVisible();
+    await tripleTab.click();
+    await expect(
+      page.locator("#equip-detail-triple-synergy-list"),
+    ).toBeVisible();
 
     await page.locator("#sim-details-settings-btn").click();
     const settingsModal = page.locator("dialog.modal[open]");
@@ -541,7 +542,7 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await showMultiSynergyCheckbox.setChecked(false, { force: true });
     await page.getByRole("button", { name: "閉じる" }).click();
 
-    await expect(page.getByText("この装備を含む多装備シナジー")).toBeHidden();
+    await expect(tripleTab).toBeHidden();
   });
 
   test("mobile view uses floating picker buttons and modal selection", async ({
@@ -636,6 +637,11 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await dialog
       .getByRole("button", { name: /テスト装備B ID 2/ })
       .first()
+      .click();
+    await expect(page.locator("#equip-detail-compatible-list")).toBeVisible();
+    await page
+      .getByRole("tablist", { name: "装備詳細セクション切り替え" })
+      .getByRole("tab", { name: /^シナジー艦/ })
       .click();
     await expect(page.locator("#equip-detail-synergy-ships-list")).toBeVisible();
   });
