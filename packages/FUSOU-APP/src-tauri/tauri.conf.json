@@ -74,21 +74,7 @@
     }
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "fullscreen": false,
-        "height": 720,
-        "resizable": true,
-        "title": "fusou-app",
-        "width": 1200,
-        "visible": false,
-        "useHttpsScheme": true,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

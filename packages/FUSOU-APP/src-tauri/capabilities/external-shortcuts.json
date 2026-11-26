@@ -9,7 +9,7 @@
       "https://play.games.dmm.com/**"
     ]
   },
-  "windows": ["external"],
+  "webviews": ["external"],
   "permissions": [
     "allow-external-window-shortcut",
     "core:window:allow-start-dragging",

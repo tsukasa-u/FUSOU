@@ -9,6 +9,10 @@
 html,
 body {
   background-color: transparent !important;
+  /* Disable synthetic faux-bold so single-weight stencil/pixel fonts keep crisp gaps,
+     while fonts with genuine bold faces still use their real bold weights. */
+  font-synthesis: style;
+  font-synthesis-weight: none;
 }
 
 #root {
@@ -33,4 +37,37 @@ body {
 #root.is-maximized .window-content-container {
   border-bottom-left-radius: 0px !important;
   border-bottom-right-radius: 0px !important;
+}
+
+#root.is-chrome-surface {
+  height: 32px;
+  border-radius: 0px !important;
+  background-color: #27272a !important;
+}
+
+#root.is-docked-panel {
+  border-radius: 0px !important;
+  background-color: var(--color-base-100) !important;
+  position: relative;
+}
+
+#root.is-docked-panel .window-content-container {
+  border-bottom-left-radius: 0px;
+  border-bottom-right-radius: 0px;
+}
+
+#root.is-docked-panel.dock-game-visible[data-dock-position="right"] .window-content-container {
+  padding-left: 6px;
+}
+
+#root.is-docked-panel.dock-game-visible[data-dock-position="left"] .window-content-container {
+  padding-right: 6px;
+}
+
+#root.is-docked-panel.dock-game-visible[data-dock-position="bottom"] .window-content-container {
+  padding-top: 6px;
+}
+
+#root.is-docked-panel.dock-game-visible[data-dock-position="top"] .window-content-container {
+  padding-bottom: 6px;
 }

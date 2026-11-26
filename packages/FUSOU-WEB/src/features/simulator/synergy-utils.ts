@@ -678,7 +678,8 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
         merged.push(entry);
         continue;
       }
-      const sig = synergySignature(entry.correction) + (entry.cancels_single ? "|C" : "") + `|len:${entry.pools.length}`;
+      const supSig = entry.suppressed_components ? `|S:${entry.suppressed_components.join(",")}` : "";
+      const sig = synergySignature(entry.correction) + (entry.cancels_single ? "|C" : "") + supSig + `|len:${entry.pools.length}`;
       if (!categoryGroups.has(sig)) categoryGroups.set(sig, []);
       categoryGroups.get(sig)!.push(entry);
     } else if (entry.kind === "pool") {
@@ -686,13 +687,17 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
         .map((x) => x.id)
         .sort((a, b) => a - b)
         .join(",");
+      const supSig = entry.suppressed_components ? `|S:${entry.suppressed_components.join(",")}` : "";
       const sig =
         synergySignature(entry.correction) +
+        (entry.cancels_single ? "|C" : "") +
+        supSig +
         `|k:${entry.comboSize}|f:${fixedKey}|r:${entry.freePoolWithReplacement ? 1 : 0}|p:${entry.freePickCount ?? -1}`;
       if (!poolGroups.has(sig)) poolGroups.set(sig, []);
       poolGroups.get(sig)!.push(entry);
     } else if (entry.kind === "combo") {
-      const sig = `${synergySignature(entry.netStats)}|k:${entry.combo.length}`;
+      const supSig = entry.suppressed_components ? `|S:${entry.suppressed_components.join(",")}` : "";
+      const sig = `${synergySignature(entry.netStats)}${entry.cancels_single ? "|C" : ""}${supSig}|k:${entry.combo.length}`;
       if (!comboGroups.has(sig)) comboGroups.set(sig, []);
       comboGroups.get(sig)!.push(entry);
     } else {

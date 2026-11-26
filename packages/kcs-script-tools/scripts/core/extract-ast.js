@@ -5,19 +5,30 @@ const walk = require("acorn-walk");
 const vm = require("vm");
 const { loadBundle, findMasterData, parseMasterData, buildMstDict, createGetMst, ROOT } = require("../../lib/loader");
 
-// --- 1. Load Master Data ---
-const masterPath = findMasterData();
-const masterData = parseMasterData(masterPath);
-const mstShips = [...masterData.api_mst_ship].sort((a, b) => a.api_id - b.api_id);
-const mstSlotitems = [...masterData.api_mst_slotitem].sort((a, b) => a.api_id - b.api_id);
-const mstDict = buildMstDict(mstSlotitems);
-const getMstFn = createGetMst(mstDict);
-
-// --- 2. Parse AST of deobfuscated.js ---
+// --- 1. Parse arguments & Load Master Data from FUSOU-PROXY-DATA ---
 const args = process.argv.slice(2);
 const periodTagIdx = args.indexOf("--period-tag");
 const periodTag = periodTagIdx >= 0 ? args[periodTagIdx + 1] : null;
 
+const masterPath = findMasterData(periodTag);
+if (!masterPath) {
+  console.error(
+    `[extract-ast] Error: No valid *S@api_start2@getData* file found in FUSOU-PROXY-DATA${periodTag ? `/${periodTag}/kcsapi` : ""}.`,
+  );
+  process.exit(1);
+}
+console.log(`[extract-ast] Master data: ${path.relative(ROOT, masterPath)}`);
+const masterData = parseMasterData(masterPath);
+const mstShips = [...masterData.api_mst_ship].sort((a, b) => a.api_id - b.api_id);
+const mstSlotitems = [...masterData.api_mst_slotitem].sort((a, b) => a.api_id - b.api_id);
+const validItemIdSet = new Set(mstSlotitems.map((s) => s.api_id));
+const validType3IdSet = new Set(
+  (masterData.api_mst_slotitem_equiptype || []).map((t) => t.api_id),
+);
+const mstDict = buildMstDict(mstSlotitems);
+const getMstFn = createGetMst(mstDict);
+
+// --- 2. Parse AST of deobfuscated.js ---
 const inputPath = periodTag ? `output/deobfuscated_${periodTag}.js` : "output/deobfuscated.js";
 const outputPath = periodTag ? `output/synergy_dict_${periodTag}.json` : "output/synergy_dict.json";
 const deob = fs.readFileSync(path.join(ROOT, inputPath), "utf8");
@@ -272,26 +283,31 @@ for (let i = 0; i < arrayNode.elements.length; i++) {
   const requiredItemTypes = [];
   const requiredItemIds = [];
 
-  // 1) Legacy explicit names (preferable when available)
+  // 1) Explicit known wrapper method names (preferable when available)
   const legacyTypeMatches = [...isExecuteText.matchAll(/get_type3_nums\((\d+)\)/g)];
   for (const m of legacyTypeMatches) requiredItemTypes.push(parseInt(m[1], 10));
 
   const legacyIdMatches = [...isExecuteText.matchAll(/get_slotnums\((\d+)\)/g)];
   for (const m of legacyIdMatches) requiredItemIds.push(parseInt(m[1], 10));
 
-  // 2) Generic method call fallback: <obj>.<method>(<number>)
-  // Heuristic: low IDs are usually slotitem IDs; larger IDs are type3 IDs.
-  // This preserves filtering utility even when method names are obfuscated/renamed.
-  const genericMatches = [
-    ...isExecuteText.matchAll(/\.[A-Za-z_][A-Za-z0-9_]*\((\d+)\)/g),
-  ];
-  for (const m of genericMatches) {
-    const n = parseInt(m[1], 10);
-    if (!Number.isFinite(n)) continue;
-    if (n <= 500) {
-      requiredItemIds.push(n);
-    } else {
-      requiredItemTypes.push(n);
+  // 2) Generic method call fallback ONLY when explicit method names were not found
+  // (e.g. if a future bundle renames get_type3_nums / get_slotnums).
+  if (requiredItemTypes.length === 0 && requiredItemIds.length === 0) {
+    const genericMatches = [
+      ...isExecuteText.matchAll(/\.([A-Za-z_][A-Za-z0-9_]*)\((\d+)\)/g),
+    ];
+    for (const m of genericMatches) {
+      const methodName = m[1];
+      const n = parseInt(m[2], 10);
+      if (!Number.isFinite(n)) continue;
+      if (/type/i.test(methodName)) {
+        requiredItemTypes.push(n);
+      } else if (/slot|item/i.test(methodName)) {
+        requiredItemIds.push(n);
+      } else {
+        if (validItemIdSet.has(n)) requiredItemIds.push(n);
+        if (validType3IdSet.has(n)) requiredItemTypes.push(n);
+      }
     }
   }
 

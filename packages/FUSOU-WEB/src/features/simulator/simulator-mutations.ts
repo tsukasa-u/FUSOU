@@ -1,4 +1,4 @@
-﻿// ── Centralized simulator state mutations ──
+// ── Centralized simulator state mutations ──
 
 import { markSimulatorStateDirty, simulatorReadOnly, simulatorCombinedFleetType, simulatorDisplayRevision, state } from "./state";
 import { AIRCRAFT_TYPES } from "./constants";
@@ -493,8 +493,82 @@ export function setShipTypeSpriteSheetUrl(spriteSheetUrl: string): void {
   markSimulatorStateDirty();
 }
 
+type IndexableRule = {
+  items?: number[];
+  item_pool?: number[];
+  fixed_items?: number[];
+  free_pool?: number[];
+  category_pools?: number[][];
+  pairs?: [number, number][];
+  combos?: number[][];
+  implicants?: number[][][];
+};
+
+function buildEquipIndex(rules: IndexableRule[]): Record<string, number[]> {
+  const index: Record<string, number[]> = {};
+  for (let i = 0; i < rules.length; i++) {
+    const rule = rules[i];
+    if (!rule) continue;
+    const items = new Set<number>();
+    if (rule.items) for (const id of rule.items) items.add(id);
+    if (rule.item_pool) for (const id of rule.item_pool) items.add(id);
+    if (rule.fixed_items) for (const id of rule.fixed_items) items.add(id);
+    if (rule.free_pool) for (const id of rule.free_pool) items.add(id);
+    if (rule.category_pools) {
+      for (const pool of rule.category_pools) {
+        for (const id of pool) items.add(id);
+      }
+    }
+    if (rule.pairs) {
+      for (const pair of rule.pairs) {
+        for (const id of pair) items.add(id);
+      }
+    }
+    if (rule.combos) {
+      for (const combo of rule.combos) {
+        for (const id of combo) items.add(id);
+      }
+    }
+    if (rule.implicants) {
+      for (const imp of rule.implicants) {
+        for (const term of imp) {
+          for (const id of term) items.add(id);
+        }
+      }
+    }
+    for (const id of items) {
+      const key = String(id);
+      if (!index[key]) index[key] = [];
+      index[key].push(i);
+    }
+  }
+  return index;
+}
+
+function ensureEquipIndices(data: SlotItemEffectsData): SlotItemEffectsData {
+  if (data.effect_rules && !data.effect_rules_equip_index) {
+    data.effect_rules_equip_index = buildEquipIndex(data.effect_rules);
+  }
+  if (data.cross_rules && !data.cross_rules_equip_index) {
+    data.cross_rules_equip_index = buildEquipIndex(data.cross_rules);
+  }
+  if (data.triple_rules && !data.triple_rules_equip_index) {
+    data.triple_rules_equip_index = buildEquipIndex(data.triple_rules);
+  }
+  if (data.quad_rules && !data.quad_rules_equip_index) {
+    data.quad_rules_equip_index = buildEquipIndex(data.quad_rules);
+  }
+  if (data.penta_rules && !data.penta_rules_equip_index) {
+    data.penta_rules_equip_index = buildEquipIndex(data.penta_rules);
+  }
+  if (data.hexa_rules && !data.hexa_rules_equip_index) {
+    data.hexa_rules_equip_index = buildEquipIndex(data.hexa_rules);
+  }
+  return data;
+}
+
 export function setSlotItemEffects(slotItemEffects: SlotItemEffectsData | null): void {
-  state.slotItemEffects = slotItemEffects;
+  state.slotItemEffects = slotItemEffects ? ensureEquipIndices(slotItemEffects) : null;
   markSimulatorStateDirty();
 }
 

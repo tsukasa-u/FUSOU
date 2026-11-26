@@ -404,20 +404,17 @@ pub async fn launch_with_options(
 
 #[tauri::command]
 pub async fn check_open_window(window: tauri::Window, label: &str) -> Result<bool, ()> {
-    let open_flag = match window.get_webview_window(label) {
-        Some(win) => Ok(win.is_visible().unwrap_or(false)),
-        None => Err(()),
-    }?;
+    let app = window.app_handle();
+    if let Some(webview) = app.get_webview(label) {
+        let host_window = webview.window();
+        let is_visible = host_window.is_visible().unwrap_or(false);
+        if !is_visible {
+            let _ = host_window.show();
+        }
+        return Ok(host_window.is_visible().unwrap_or(false));
+    }
 
-    let opened_flag = if !open_flag {
-        let win = window.get_webview_window(label);
-        win.clone().map(|app| app.show());
-        win.map(|app| app.is_visible().unwrap_or(false))
-    } else {
-        Some(true)
-    };
-
-    opened_flag.ok_or(())
+    Err(())
 }
 
 #[tauri::command]

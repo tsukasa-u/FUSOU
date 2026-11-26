@@ -32,38 +32,7 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
 }
 
 fn goto_restore_window(app: &tauri::AppHandle) {
-    let singleton_window = match app.get_webview_window("main") {
-        Some(window) => window,
-        None => {
-            tracing::error!("Failed to get main window");
-            return;
-        }
-    };
-
-    if let Err(e) = singleton_window.show() {
-        tracing::warn!(
-            "failed to show main window in single instance handler: {}",
-            e
-        );
-    }
-
-    if singleton_window.is_minimized().unwrap_or(false) {
-        if let Err(e) = singleton_window.unminimize() {
-            tracing::warn!(
-                "failed to unminimize main window in single instance handler: {}",
-                e
-            );
-        }
-    }
-
-    if !singleton_window.is_focused().unwrap_or(false) {
-        if let Err(e) = singleton_window.set_focus() {
-            tracing::warn!(
-                "failed to focus main window in single instance handler: {}",
-                e
-            );
-        }
-    }
+    crate::window::host::restore_and_focus_primary_window(app);
 }
 
 /// Handle fusou://sync?token=xxx

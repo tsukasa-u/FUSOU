@@ -6,6 +6,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  onCleanup,
   type JSX,
 } from "solid-js";
 import { cachedFetch } from "@/utils/fetchCache";
@@ -69,7 +70,10 @@ import {
   SynergyStatInline,
   CompatibilityBadges,
   MultiEntryDisplay,
+  DetailTabbedShell,
+  SynergyScrollBox,
   statKeyToLabel,
+  type DetailTabItem,
 } from "./shared-ui";
 import { useStore } from "@nanostores/solid";
 import { simulatorSearchQuery } from "@/features/simulator/state";
@@ -213,7 +217,7 @@ function ShipDetailPanel(props: {
         (entry) =>
           appliesToShip(entry.ships) &&
           scoreSynergy(entry.synergy) > 0 &&
-          !entry.cancels_single,
+          !(entry.cancels_single && Object.values(entry.synergy).some((v) => v < 0)),
       );
 
     for (const entry of pairEntries) {
@@ -528,6 +532,7 @@ function ShipDetailPanel(props: {
             kind: "pool",
             pool,
             comboSize,
+            cancels_single: !!rule.cancels_single,
             correction: rule.synergy,
             ...(rule.suppressed_components
               ? { suppressed_components: rule.suppressed_components }
@@ -559,6 +564,7 @@ function ShipDetailPanel(props: {
             kind: "pool",
             pool,
             comboSize,
+            cancels_single: !!rule.cancels_single,
             correction: rule.synergy,
             fixed,
             freePool,
@@ -611,6 +617,7 @@ function ShipDetailPanel(props: {
               all.push({
                 kind: "combo",
                 combo: items as MstSlotItemData[],
+                cancels_single: !!rule.cancels_single,
                 netStats: rule.synergy,
                 ...(rule.suppressed_components
                   ? { suppressed_components: rule.suppressed_components }
@@ -664,9 +671,6 @@ function ShipDetailPanel(props: {
     };
   });
 
-
-  let shipSynergyContainerRef!: HTMLElement;
-  const [shipMinHeight, setShipMinHeight] = createSignal<number | null>(null);
 
   const [isSynergiesReady, setIsSynergiesReady] = createSignal(false);
   const deferredSynergies = createMemo(() => {
@@ -791,14 +795,13 @@ function ShipDetailPanel(props: {
 
   createEffect(() => {
     props.ship; // Track ship changes
-    if (shipSynergyContainerRef) {
-      setShipMinHeight(shipSynergyContainerRef.offsetHeight);
-    }
     setIsSynergiesReady(false);
-    setTimeout(() => {
+    const rafId = requestAnimationFrame(() => {
       setIsSynergiesReady(true);
-      setTimeout(() => setShipMinHeight(null), 50);
-    }, 50); // Yield to let DOM paint the ship details first
+    }); // Yield 1 frame to paint ship header first, then compute & hydrate in background
+    onCleanup(() => {
+      cancelAnimationFrame(rafId);
+    });
   });
 
   const rawEquippableGroups = createMemo(() => {
@@ -854,6 +857,60 @@ function ShipDetailPanel(props: {
     return sCount + dCount + spCount + rCount + mCount;
   });
 
+  type ShipDetailTab =
+    | "equippable"
+    | "single"
+    | "double"
+    | "speed"
+    | "range"
+    | "triple"
+    | "quad"
+    | "penta";
+
+  const [activeTab, setActiveTab] = createSignal<ShipDetailTab>("equippable");
+
+  createEffect(() => {
+    if (
+      !props.showMultiSynergy &&
+      (activeTab() === "triple" ||
+        activeTab() === "quad" ||
+        activeTab() === "penta")
+    ) {
+      setActiveTab("equippable");
+    }
+  });
+
+  const detailTabs = createMemo<DetailTabItem<ShipDetailTab>[]>(() => {
+    const syn = deferredSynergies();
+    const loading = !syn;
+    const sumEntries = (groups: Array<{ entries: unknown[] }> | undefined) =>
+      groups ? groups.reduce((acc, g) => acc + g.entries.length, 0) : 0;
+
+    const tabs: DetailTabItem<ShipDetailTab>[] = [
+      { id: "equippable", label: "装備可能", title: "装備可能な装備", count: matchedEquipCount() },
+      { id: "single", label: "単体", title: "単体装備シナジー", count: sumEntries(syn?.single), loading },
+      { id: "double", label: "2装備", title: "2装備シナジー", count: sumEntries(syn?.double), loading },
+      { id: "speed", label: "速力", title: "速力シナジー", count: sumEntries(syn?.speedSynergies), loading },
+      { id: "range", label: "射程", title: "射程シナジー", count: sumEntries(syn?.rangeSynergies), loading },
+    ];
+    if (props.showMultiSynergy) {
+      tabs.push(
+        { id: "triple", label: "3装備", title: "3装備シナジー", count: sumEntries(syn?.triple), loading },
+        { id: "quad", label: "4装備", title: "4装備シナジー", count: sumEntries(syn?.quad), loading },
+        { id: "penta", label: "5装備", title: "5装備シナジー", count: sumEntries(syn?.penta), loading },
+      );
+    }
+    return tabs;
+  });
+
+  const isActiveTabExpanded = createMemo(() => {
+    const t = activeTab();
+    if (t === "equippable") return props.expandEquippableEquip;
+    if (t === "single" || t === "speed" || t === "range") return props.expandSingleSynergy;
+    if (t === "double") return props.expandPairSynergy;
+    return props.expandMultiSynergy;
+  });
+
   const specRows = createMemo<Array<[label: string, value: string | number]>>(
     () => [
       ["ID", props.ship.id],
@@ -895,7 +952,7 @@ function ShipDetailPanel(props: {
   );
 
   return (
-    <article class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-x-hidden">
+    <article class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-x-clip">
       <div class="px-4 py-3 border-b border-base-200 bg-linear-to-r from-primary/10 to-transparent">
         <h2 class="font-semibold">艦詳細</h2>
       </div>
@@ -946,10 +1003,20 @@ function ShipDetailPanel(props: {
           </div>
         </Show>
 
-        <section class="mb-8">
-          <h4 class="text-sm font-semibold text-base-content/80 mb-2">装備可能な装備</h4>
-          <div class="rounded-lg border border-base-300/70 p-2">
-            <div id="ship-detail-equippable-list" class={`space-y-3 pr-1 ${props.expandEquippableEquip ? "" : "max-h-[40vh] overflow-y-auto"}`}>
+        <DetailTabbedShell
+          tabs={detailTabs()}
+          activeTab={activeTab()}
+          onSelect={setActiveTab}
+          ariaLabel="艦詳細セクション切り替え"
+          expanded={isActiveTabExpanded()}
+        >
+        <section class={activeTab() === "equippable" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
+          <SynergyScrollBox
+            id="ship-detail-equippable-list"
+            title="装備可能な装備"
+            expanded={props.expandEquippableEquip}
+            contentClass="space-y-3"
+          >
               <Show
                 when={equippableGroups().length > 0}
                 fallback={
@@ -998,34 +1065,38 @@ function ShipDetailPanel(props: {
 )}
 </For>
               </Show>
-            </div>
-          </div>
+          </SynergyScrollBox>
         </section>
 
-        <section class="mb-8" ref={shipSynergyContainerRef} style={{ "min-height": shipMinHeight() != null ? `${shipMinHeight()}px` : undefined }}>
+        <section
+          class={activeTab() === "equippable" ? "hidden" : "flex-1 min-h-0 flex flex-col"}
+        >
           <Show
             when={deferredSynergies()}
             fallback={
-            <div class="py-12 flex flex-col items-center justify-center text-base-content/50">
+            <div class="flex-1 flex flex-col items-center justify-center py-12 text-base-content/50">
               <span class="loading loading-spinner loading-md mb-2"></span>
               <p>シナジーデータを計算・描画しています...</p>
             </div>
           }
           >
             {(shipSynergy) => (
-              <div class="space-y-8">
-                <section>
-                <h4 class="text-sm font-semibold text-base-content/80 mb-2">単体装備シナジー</h4>
+              <div class="flex-1 min-h-0 flex flex-col">
+                <section class={activeTab() === "single" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
                 <Show
                   when={shipSynergy().single.length > 0}
                   fallback={
-                    <div class="rounded-lg border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/50">
+                    <div class="flex-1 flex items-center justify-center rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center">
                       この艦に設定された単体装備シナジーはありません
                     </div>
                   }
                 >
-                  <div class="rounded-lg border border-base-300/70 p-2">
-                    <div id="ship-detail-single-synergy-list" class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                  <SynergyScrollBox
+                    id="ship-detail-single-synergy-list"
+                    title="単体装備シナジー"
+                    expanded={props.expandSingleSynergy}
+                    contentClass="space-y-3"
+                  >
                       <For each={shipSynergy().single}>
                         {(group) => (
 <LazyRender>
@@ -1098,23 +1169,25 @@ function ShipDetailPanel(props: {
 </LazyRender>
 )}
 </For>
-                    </div>
-                  </div>
+                  </SynergyScrollBox>
                 </Show>
                 </section>
 
-                <section>
-                <h4 class="text-sm font-semibold text-base-content/80 mb-2">装備組み合わせシナジー</h4>
+                <section class={activeTab() === "double" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
                 <Show
                   when={shipSynergy() && shipSynergy()!.double.length > 0}
                   fallback={
-                    <div class="rounded-lg border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/50">
+                    <div class="flex-1 flex items-center justify-center rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center">
                       この艦に設定された装備組み合わせシナジーはありません
                     </div>
                   }
                 >
-                  <div class="rounded-lg border border-base-300/70 p-2">
-                    <div id="ship-detail-pair-synergy-list" class={`space-y-3 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
+                  <SynergyScrollBox
+                    id="ship-detail-pair-synergy-list"
+                    title="装備組み合わせシナジー"
+                    expanded={props.expandPairSynergy}
+                    contentClass="space-y-3"
+                  >
                       <For each={shipSynergy().double}>
                         {(group) => (
 <LazyRender>
@@ -1140,23 +1213,25 @@ function ShipDetailPanel(props: {
 </LazyRender>
 )}
 </For>
-                    </div>
-                  </div>
+                  </SynergyScrollBox>
                 </Show>
                 </section>
 
-                <section>
-                <h4 class="text-sm font-semibold text-base-content/80 mb-2">速力シナジー</h4>
+                <section class={activeTab() === "speed" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
                 <Show
                   when={shipSynergy().speedSynergies.length > 0}
                   fallback={
-                    <div class="rounded-lg border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/50">
+                    <div class="flex-1 flex items-center justify-center rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center">
                       この艦に設定された速力シナジーはありません
                     </div>
                   }
                 >
-                  <div class="rounded-lg border border-base-300/70 p-2">
-                    <div id="ship-detail-speed-synergy-list" class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}>
+                  <SynergyScrollBox
+                    id="ship-detail-speed-synergy-list"
+                    title="速力シナジー"
+                    expanded={props.expandSingleSynergy}
+                    contentClass="space-y-3"
+                  >
                       <For each={shipSynergy().speedSynergies}>
                         {(group) => (
 <LazyRender>
@@ -1186,7 +1261,7 @@ function ShipDetailPanel(props: {
                                           iconNum={row.equip.type?.[3] ?? 0}
                                         />
                                       </span>
-                                      <span class="truncate max-w-40">
+                                      <span class="truncate max-w-full">
                                         {row.equip.name}
                                       </span>
                                     </button>
@@ -1207,7 +1282,7 @@ function ShipDetailPanel(props: {
                                               }
                                             />
                                           </span>
-                                          <span class="truncate max-w-40">
+                                          <span class="truncate max-w-full">
                                             {row.partner?.name}
                                           </span>
                                         </button>
@@ -1233,23 +1308,25 @@ function ShipDetailPanel(props: {
 </LazyRender>
 )}
 </For>
-                    </div>
-                  </div>
+                  </SynergyScrollBox>
                 </Show>
                 </section>
 
-                <section>
-                <h4 class="text-sm font-semibold text-base-content/80 mb-2">射程シナジー</h4>
+                <section class={activeTab() === "range" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
                 <Show 
                   when={shipSynergy().rangeSynergies.length > 0}
                   fallback={
-                    <div class="rounded-lg border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/50">
+                    <div class="flex-1 flex items-center justify-center rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center">
                       この艦に設定された射程シナジーはありません
                     </div>
                   }
                 >
-                  <div class="rounded-lg border border-base-300/70 p-2">
-                    <div id="ship-detail-range-synergy-list" class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}>
+                  <SynergyScrollBox
+                    id="ship-detail-range-synergy-list"
+                    title="射程シナジー"
+                    expanded={props.expandSingleSynergy}
+                    contentClass="space-y-3"
+                  >
                       <For each={shipSynergy().rangeSynergies}>
                         {(group) => (
 <LazyRender>
@@ -1279,7 +1356,7 @@ function ShipDetailPanel(props: {
                                           iconNum={row.equip.type?.[3] ?? 0}
                                         />
                                       </span>
-                                      <span class="truncate max-w-40">
+                                      <span class="truncate max-w-full">
                                         {row.equip.name}
                                       </span>
                                     </button>
@@ -1300,7 +1377,7 @@ function ShipDetailPanel(props: {
                                               }
                                             />
                                           </span>
-                                          <span class="truncate max-w-40">
+                                          <span class="truncate max-w-full">
                                             {row.partner?.name}
                                           </span>
                                         </button>
@@ -1326,136 +1403,157 @@ function ShipDetailPanel(props: {
 </LazyRender>
 )}
 </For>
-                    </div>
-                  </div>
+                  </SynergyScrollBox>
                 </Show>
                 </section>
 
-                <Show
-                  when={
-                    props.showMultiSynergy &&
-                    (shipSynergy().triple.length > 0 ||
-                      shipSynergy().quad.length > 0 ||
-                      shipSynergy().penta.length > 0)
-                  }
-                >
-                  <section class="mb-6">
-                    <h4 class="font-medium mb-1">多装備シナジー</h4>
-                    <p class="text-xs text-base-content/50 mb-4">
-                      3〜5装備の組み合わせ。ここに表示される数値は、個別の単体・ペアシナジーに加えて<b>追加で得られるシナジー（差分）</b>を示しています。
-                    </p>
-                    <div class="space-y-6">
-                      <Show when={shipSynergy().triple.length > 0}>
-                        <section class="mb-6">
-                          <h4 class="font-medium mb-2">3装備シナジー</h4>
-                          <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                            <div id="ship-detail-triple-synergy-list" class={`space-y-4 pr-1 ${props.expandMultiSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
-                              <For each={shipSynergy().triple}>
-                                {(group) => (
+                <Show when={props.showMultiSynergy}>
+                  <section class={activeTab() === "triple" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
+                    <Show
+                      when={shipSynergy().triple.length > 0}
+                      fallback={
+                        <div class="flex-1 flex items-center justify-center rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center">
+                          この艦に設定された3装備シナジーはありません
+                        </div>
+                      }
+                    >
+                      <SynergyScrollBox
+                        id="ship-detail-triple-synergy-list"
+                        title="3装備シナジー"
+                        subtitle="個別の単体・ペアシナジーに加えて追加で得られるシナジー（差分）を示しています。"
+                        titleClass="font-medium text-base-content"
+                        expanded={props.expandMultiSynergy}
+                        boxClass="rounded-lg border border-base-300/70 p-3 bg-base-100"
+                        contentClass="space-y-4"
+                      >
+                          <For each={shipSynergy().triple}>
+                            {(group) => (
 <LazyRender>
 <div class="mb-2 last:mb-0">
-                                    <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
-                                      {group.label}系{" "}
-                                      <span class="font-normal text-base-content/60">
-                                        （{group.entries.length}件）
-                                      </span>
-                                    </h5>
-                                    <ProgressiveGrid
-                                      data={group.entries}
-                                      class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2"
-                                    >
-                                      {(entry) => (
-                                        <MultiEntryDisplay
-                                          entry={entry}
-                                          onOpenEquip={props.onOpenEquip}
-                                        />
-                                      )}
-                                    </ProgressiveGrid>
+                                <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
+                                  {group.label}系{" "}
+                                  <span class="font-normal text-base-content/60">
+                                    （{group.entries.length}件）
+                                  </span>
+                                </h5>
+                                <ProgressiveGrid
+                                  data={group.entries}
+                                  class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2"
+                                >
+                                  {(entry) => (
+                                    <MultiEntryDisplay
+                                      entry={entry}
+                                      onOpenEquip={props.onOpenEquip}
+                                    />
+                                  )}
+                                </ProgressiveGrid>
 </div>
 </LazyRender>
 )}
 </For>
-                            </div>
-                          </div>
-                        </section>
-                      </Show>
+                      </SynergyScrollBox>
+                    </Show>
+                  </section>
 
-                      <Show when={shipSynergy().quad.length > 0}>
-                        <section class="mb-6">
-                          <h4 class="font-medium mb-2">4装備シナジー</h4>
-                          <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                            <div id="ship-detail-quad-synergy-list" class={`space-y-4 pr-1 ${props.expandMultiSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
-                              <For each={shipSynergy().quad}>
-                                {(group) => (
+                  <section class={activeTab() === "quad" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
+                    <Show
+                      when={shipSynergy().quad.length > 0}
+                      fallback={
+                        <div class="flex-1 flex items-center justify-center rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center">
+                          この艦に設定された4装備シナジーはありません
+                        </div>
+                      }
+                    >
+                      <SynergyScrollBox
+                        id="ship-detail-quad-synergy-list"
+                        title="4装備シナジー"
+                        subtitle="個別の単体・ペア・3装備シナジーに加えて追加で得られるシナジー（差分）を示しています。"
+                        titleClass="font-medium text-base-content"
+                        expanded={props.expandMultiSynergy}
+                        boxClass="rounded-lg border border-base-300/70 p-3 bg-base-100"
+                        contentClass="space-y-4"
+                      >
+                          <For each={shipSynergy().quad}>
+                            {(group) => (
 <LazyRender>
 <div class="mb-2 last:mb-0">
-                                    <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
-                                      {group.label}系{" "}
-                                      <span class="font-normal text-base-content/60">
-                                        （{group.entries.length}件）
-                                      </span>
-                                    </h5>
-                                    <ProgressiveGrid
-                                      data={group.entries}
-                                      class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2"
-                                    >
-                                      {(entry) => (
-                                        <MultiEntryDisplay
-                                          entry={entry}
-                                          onOpenEquip={props.onOpenEquip}
-                                        />
-                                      )}
-                                    </ProgressiveGrid>
+                                <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
+                                  {group.label}系{" "}
+                                  <span class="font-normal text-base-content/60">
+                                    （{group.entries.length}件）
+                                  </span>
+                                </h5>
+                                <ProgressiveGrid
+                                  data={group.entries}
+                                  class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2"
+                                >
+                                  {(entry) => (
+                                    <MultiEntryDisplay
+                                      entry={entry}
+                                      onOpenEquip={props.onOpenEquip}
+                                    />
+                                  )}
+                                </ProgressiveGrid>
 </div>
 </LazyRender>
 )}
 </For>
-                            </div>
-                          </div>
-                        </section>
-                      </Show>
+                      </SynergyScrollBox>
+                    </Show>
+                  </section>
 
-                      <Show when={shipSynergy().penta.length > 0}>
-                        <div class="rounded-lg border border-base-300/70 p-2">
-                          <h5 class="text-sm font-medium mb-2">
-                            5装備シナジー
-                          </h5>
-                          <div id="ship-detail-penta-synergy-list" class={`space-y-3 pr-1 ${props.expandMultiSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
-                            <For each={shipSynergy().penta}>
-                              {(group) => (
+                  <section class={activeTab() === "penta" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
+                    <Show
+                      when={shipSynergy().penta.length > 0}
+                      fallback={
+                        <div class="flex-1 flex items-center justify-center rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center">
+                          この艦に設定された5装備シナジーはありません
+                        </div>
+                      }
+                    >
+                      <SynergyScrollBox
+                        id="ship-detail-penta-synergy-list"
+                        title="5装備シナジー"
+                        subtitle="個別の単体〜4装備シナジーに加えて追加で得られるシナジー（差分）を示しています。"
+                        titleClass="font-medium text-base-content"
+                        expanded={props.expandMultiSynergy}
+                        boxClass="rounded-lg border border-base-300/70 p-3 bg-base-100"
+                        contentClass="space-y-3"
+                      >
+                        <For each={shipSynergy().penta}>
+                          {(group) => (
 <LazyRender>
 <div>
-                                  <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
-                                    {group.label}系{" "}
-                                    <span class="font-normal text-base-content/60">
-                                      （{group.entries.length}件）
-                                    </span>
-                                  </h6>
-                                  <ProgressiveGrid
-                                    data={group.entries}
-                                    class="grid grid-cols-1 sm:grid-cols-2 gap-2"
-                                  >
-                                    {(entry) => (
-                                      <MultiEntryDisplay
-                                        entry={entry}
-                                        onOpenEquip={props.onOpenEquip}
-                                      />
-                                    )}
-                                  </ProgressiveGrid>
+                              <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
+                                {group.label}系{" "}
+                                <span class="font-normal text-base-content/60">
+                                  （{group.entries.length}件）
+                                </span>
+                              </h6>
+                              <ProgressiveGrid
+                                data={group.entries}
+                                class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                              >
+                                {(entry) => (
+                                  <MultiEntryDisplay
+                                    entry={entry}
+                                    onOpenEquip={props.onOpenEquip}
+                                  />
+                                )}
+                              </ProgressiveGrid>
 </div>
 </LazyRender>
 )}
 </For>
-                          </div>
-                        </div>
-                      </Show>
-                    </div>
+                      </SynergyScrollBox>
+                    </Show>
                   </section>
                 </Show>
               </div>
             )}
           </Show>
         </section>
+        </DetailTabbedShell>
       </div>
     </article>
   );

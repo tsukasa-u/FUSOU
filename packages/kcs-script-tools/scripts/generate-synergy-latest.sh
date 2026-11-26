@@ -48,8 +48,8 @@ elif command -v getconf >/dev/null 2>&1; then
 else
   SCAN_AST_THREADS=1
 fi
-if [[ "$SCAN_AST_THREADS" -gt 8 ]]; then
-  SCAN_AST_THREADS=8
+if [[ "$SCAN_AST_THREADS" -gt 16 ]]; then
+  SCAN_AST_THREADS=16
 fi
 SCAN_AST_MAX_COMBO_SIZE=6
 SCAN_AST_SHIPS=""
@@ -151,6 +151,16 @@ echo "Processing latest period_tag: $tag"
 echo "----------------------------------------"
 echo "[scan] node binary: $SCAN_NODE_BIN"
 
+# 0. Preflight check (verify main.js and S@api_start2@getData in FUSOU-PROXY-DATA)
+echo "[0/3] Checking required FUSOU-PROXY-DATA files..."
+"$SCAN_NODE_BIN" -e '
+const path = require("path");
+const { ROOT, validatePeriodInputs } = require(path.resolve(process.argv[1], "..", "lib", "loader"));
+const res = validatePeriodInputs(process.argv[2]);
+console.log("[preflight] main.js:     " + path.relative(ROOT, res.mainJsPath));
+console.log("[preflight] master data: " + path.relative(ROOT, res.masterPath));
+' "$SCRIPT_DIR" "$tag"
+
 # 1. Deobfuscate
 echo "[1/3] Deobfuscating..."
 "$SCAN_NODE_BIN" "$SCRIPT_DIR/core/deobfuscate.js" --period-tag "$tag"
@@ -164,10 +174,7 @@ echo "[3/3] Scanning Synergy..."
 echo "[3/3] scan-ast heap limit: ${SCAN_AST_MAX_OLD_SPACE_MB} MB"
 echo "[3/3] max combo size: ${SCAN_AST_MAX_COMBO_SIZE}"
 if [ "$SCAN_AST_THREADS" -gt 1 ] 2>/dev/null; then
-  echo "[3/3] parallel workers: ${SCAN_AST_THREADS}"
-fi
-if [ "$SCAN_AST_THREADS" -gt 8 ] 2>/dev/null; then
-  echo "[3/3] WARNING: workers > 8 was observed to diverge from the validated reference output."
+  echo "[3/3] parallel workers: ${SCAN_AST_THREADS} (resident pool, phase-synced)"
 fi
 echo "[3/3] strict N-1 mode: $( [ "$SCAN_AST_STRICT_NMINUS1" = "1" ] && echo enabled || echo disabled )"
 echo "[3/3] duplicate-item mode: $( [ "$SCAN_AST_ALLOW_DUPLICATE_ITEMS" = "1" ] && echo enabled || echo disabled )"
@@ -214,7 +221,7 @@ if [ "$SCAN_AST_THREADS" -gt 1 ] 2>/dev/null; then
   EXTRA_PARALLEL_ARGS=()
   if [ -n "$SCAN_AST_V8_FLAGS" ]; then EXTRA_PARALLEL_ARGS+=(--v8-flags "$SCAN_AST_V8_FLAGS"); fi
   if [ "$SCAN_AST_PROFILE_V8" = "1" ]; then EXTRA_PARALLEL_ARGS+=(--profile-v8); fi
-  env "${SCAN_ENV[@]}" "$SCAN_NODE_BIN" "$SCRIPT_DIR/core/scan-ast-parallel.js" --workers "$SCAN_AST_THREADS" --progress-interval-ms "$SCAN_AST_PROGRESS_INTERVAL_MS" --schedule-shards "$SCAN_AST_SCHEDULE_SHARDS" "${EXTRA_PARALLEL_ARGS[@]}" "${SCAN_ARGS[@]}"
+  env "${SCAN_ENV[@]}" "$SCAN_NODE_BIN" "--max-old-space-size=${SCAN_AST_MAX_OLD_SPACE_MB}" "$SCRIPT_DIR/core/scan-ast-parallel.js" --workers "$SCAN_AST_THREADS" --progress-interval-ms "$SCAN_AST_PROGRESS_INTERVAL_MS" --schedule-shards "$SCAN_AST_SCHEDULE_SHARDS" "${EXTRA_PARALLEL_ARGS[@]}" "${SCAN_ARGS[@]}"
 else
   NODE_ARGS=()
   if [ -n "$SCAN_AST_V8_FLAGS" ]; then

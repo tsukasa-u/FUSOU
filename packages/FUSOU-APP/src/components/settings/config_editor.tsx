@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { AlertMessage } from "ui";
-import { fetch_font } from "../../utility/google_font";
+import { applyAppFont } from "../../utility/google_font";
 import { isTauri } from "../../utility/tauri";
 import { applyAppTheme, normalizeAppTheme } from "../../utility/theme";
 import { applyUiConfigFromValues } from "../../utility/ui_config";
+import { loadWindowLayoutState } from "../../utility/window_layout";
 import {
   ActionSummaryGrid,
   createDesktopRuntimeSummary,
@@ -20,7 +21,6 @@ import {
   DEFAULT_SERVER_OPTIONS,
   diffConfigValues,
   FIELD_SPEC_BY_KEY,
-  FONT_PRESET_OPTIONS,
   formatStringArrayInput,
   getConfigKeyLabel,
   getRestartRequiredKeys,
@@ -36,6 +36,7 @@ import {
   type KcServerOption,
   type SaveAppConfigsResponse,
 } from "./config_schema";
+import { FontPickerField } from "./font_picker";
 import { RestartRequiredModal } from "./restart_modal";
 
 export interface ConfigEditorPreviewProps {
@@ -43,6 +44,7 @@ export interface ConfigEditorPreviewProps {
   defaults?: ConfigValuesMap;
   configPath?: string;
   platform?: string;
+  systemFonts?: readonly string[];
   onSave?: (
     updates: ConfigValuesMap,
   ) => Promise<SaveAppConfigsResponse> | SaveAppConfigsResponse;
@@ -93,6 +95,34 @@ export function ConfigEditorComponent(props: {
   );
   const [saveError, setSaveError] = createSignal<string | null>(null);
   const [pickingPathKey, setPickingPathKey] = createSignal<string | null>(null);
+
+  const [systemFonts, setSystemFonts] = createSignal<string[]>([]);
+  const [systemFontsLoading, setSystemFontsLoading] = createSignal(false);
+  const [systemFontsError, setSystemFontsError] = createSignal<string | null>(
+    null,
+  );
+
+  const loadSystemFonts = async () => {
+    setSystemFontsError(null);
+    if (props.preview) {
+      setSystemFonts([...(props.preview.systemFonts ?? [])]);
+      return;
+    }
+    if (!isTauri()) {
+      setSystemFonts([]);
+      return;
+    }
+    setSystemFontsLoading(true);
+    try {
+      const fonts = await invoke<string[]>("list_system_fonts");
+      setSystemFonts(Array.isArray(fonts) ? fonts : []);
+    } catch (err) {
+      console.warn("Failed to list system fonts:", err);
+      setSystemFontsError(getErrorMessage(err));
+    } finally {
+      setSystemFontsLoading(false);
+    }
+  };
 
   const [restartModalOpen, setRestartModalOpen] = createSignal(false);
   const [restartModalKeys, setRestartModalKeys] = createSignal<string[]>([]);
@@ -178,6 +208,7 @@ export function ConfigEditorComponent(props: {
 
   onMount(() => {
     void loadConfigs();
+    void loadSystemFonts();
   });
 
   const changedValues = createMemo(() => diffConfigValues(baseline(), draft()));
@@ -252,21 +283,24 @@ export function ConfigEditorComponent(props: {
     if (updatedKeys.includes("app.font.font_family")) {
       const font = updatedValues["app.font.font_family"];
       if (typeof font === "string") {
-        const trimmed = font.trim();
-        if (trimmed === "") {
-          document.body.style.fontFamily = "";
-        } else {
-          try {
-            await fetch_font(trimmed);
-            document.body.style.fontFamily = trimmed;
-          } catch (err) {
-            console.warn("Failed to dynamically load Google Font:", err);
-          }
+        const knownSystemFonts = new Set(
+          systemFonts().map((name) => name.trim().toLowerCase()),
+        );
+        try {
+          await applyAppFont(font, { knownSystemFonts, persistStorage: true });
+        } catch (err) {
+          console.warn("Failed to apply app font:", err);
         }
       }
     }
     if (updatedKeys.some((key) => key.startsWith("app.ui."))) {
       applyUiConfigFromValues(updatedValues);
+    }
+    if (
+      updatedKeys.includes("app.kc_window.dock_position") ||
+      updatedKeys.includes("app.kc_window.dock_panel_ratio_percent")
+    ) {
+      await loadWindowLayoutState();
     }
   };
 
@@ -569,28 +603,19 @@ export function ConfigEditorComponent(props: {
         </Show>
 
         <Show when={spec.kind === "font"}>
-          <div class="flex items-center gap-2">
-            <input
-              id={`cfg-${spec.key}`}
-              type="text"
-              list="fusou-font-presets"
-              class="input input-sm input-bordered flex-1"
-              placeholder={spec.placeholder}
-              disabled={disabled() || saving()}
-              value={String(draft()[spec.key] ?? "")}
-              onInput={(e) => setDraftValue(spec.key, e.currentTarget.value)}
-            />
-            <Show when={String(draft()[spec.key] ?? "").length > 0}>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm shrink-0"
-                disabled={disabled() || saving()}
-                onClick={() => setDraftValue(spec.key, "")}
-              >
-                Use System
-              </button>
-            </Show>
-          </div>
+          <FontPickerField
+            id={`cfg-${spec.key}`}
+            value={String(draft()[spec.key] ?? "")}
+            placeholder={spec.placeholder}
+            disabled={disabled() || saving()}
+            systemFonts={systemFonts()}
+            systemFontsLoading={systemFontsLoading()}
+            systemFontsError={systemFontsError()}
+            onChange={(value) => setDraftValue(spec.key, value)}
+            onReloadSystemFonts={() => {
+              void loadSystemFonts();
+            }}
+          />
         </Show>
 
         <Show when={spec.kind === "path"}>
@@ -802,12 +827,6 @@ export function ConfigEditorComponent(props: {
 
   return (
     <div class="space-y-6" data-testid="config-editor">
-      <datalist id="fusou-font-presets">
-        <For each={FONT_PRESET_OPTIONS}>
-          {(font) => <option value={font} />}
-        </For>
-      </datalist>
-
       {/* Configuration File Bar */}
       <div class="bg-base-100 rounded-box border border-base-300 px-4 py-3 space-y-3">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

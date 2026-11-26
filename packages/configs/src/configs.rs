@@ -752,6 +752,12 @@ pub struct ConfigsAppWindow {
     max_inner_height: Option<u32>,
     default_inner_width: Option<u32>,
     default_inner_height: Option<u32>,
+    #[serde(default)]
+    window_mode: Option<String>,
+    #[serde(default)]
+    dock_position: Option<String>,
+    #[serde(default)]
+    dock_panel_ratio_percent: Option<u32>,
 }
 
 impl ConfigsAppWindow {
@@ -805,6 +811,45 @@ impl ConfigsAppWindow {
                 .default_inner_height
                 .unwrap()
         })
+    }
+    pub fn get_window_mode(&self) -> String {
+        let raw = self.window_mode.as_deref().or_else(|| {
+            get_default_configs()
+                .app
+                .kc_window
+                .window_mode
+                .as_deref()
+        });
+        match raw.map(str::trim) {
+            Some("combined") => "combined".to_string(),
+            _ => "separate".to_string(),
+        }
+    }
+    pub fn get_dock_position(&self) -> String {
+        let raw = self.dock_position.as_deref().or_else(|| {
+            get_default_configs()
+                .app
+                .kc_window
+                .dock_position
+                .as_deref()
+        });
+        match raw.map(str::trim) {
+            Some("auto") => "auto".to_string(),
+            Some("bottom") => "bottom".to_string(),
+            Some("left") => "left".to_string(),
+            Some("top") => "top".to_string(),
+            _ => "right".to_string(),
+        }
+    }
+    pub fn get_dock_panel_ratio_percent(&self) -> u32 {
+        let raw = self.dock_panel_ratio_percent.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .kc_window
+                .dock_panel_ratio_percent
+                .unwrap_or(30)
+        });
+        raw.clamp(15, 80)
     }
 }
 
@@ -2279,6 +2324,9 @@ mod tests {
             max_inner_height: None,
             default_inner_width: None,
             default_inner_height: None,
+            window_mode: None,
+            dock_position: None,
+            dock_panel_ratio_percent: None,
         };
 
         assert_eq!(
@@ -2301,6 +2349,36 @@ mod tests {
             default_configs.app.kc_window.get_default_inner_height(),
             "window default_inner_height getter should return configs.toml default"
         );
+        assert_eq!(
+            empty_window.get_window_mode(),
+            default_configs.app.kc_window.get_window_mode(),
+            "window window_mode getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_window.get_dock_position(),
+            default_configs.app.kc_window.get_dock_position(),
+            "window dock_position getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_window.get_dock_panel_ratio_percent(),
+            default_configs.app.kc_window.get_dock_panel_ratio_percent(),
+            "window dock_panel_ratio_percent getter should return configs.toml default"
+        );
+
+        let clamped_window = ConfigsAppWindow {
+            resize_debounce_millis: None,
+            keep_window_size_duration_millis: None,
+            max_inner_width: None,
+            max_inner_height: None,
+            default_inner_width: None,
+            default_inner_height: None,
+            window_mode: Some("invalid".to_string()),
+            dock_position: Some("diagonal".to_string()),
+            dock_panel_ratio_percent: Some(99),
+        };
+        assert_eq!(clamped_window.get_window_mode(), "separate");
+        assert_eq!(clamped_window.get_dock_position(), "right");
+        assert_eq!(clamped_window.get_dock_panel_ratio_percent(), 80);
     }
 
     #[test]

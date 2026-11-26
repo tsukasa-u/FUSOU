@@ -74,68 +74,58 @@ PowerShell 例:
 Copy-Item ..\FUSOU-PROXY-DATA\2026-04-23\kcs2\js\main.js .\main.js -Force
 ```
 
-## master_data（api_start2）の配置
+## master_data（api_start2）の参照先
 
-`generate:latest` 等では `FUSOU-PROXY-DATA/<period-tag>/kcsapi/` の `*@api_start2@getData*` が参照され、
-必要に応じて `pnpm run extract:master` で抽出できます。
+マスターデータは `packages/FUSOU-PROXY-DATA/<period-tag>/kcsapi/` 配下のレスポンスファイル `*S@api_start2@getData*`（`svdata=` を含む有効な JSON）を直接参照します（リクエスト `Q@` や `get_option_setting` は自動的に除外されます）。
 
-手動で `master_data/` を準備する場合は、以下のコピー例も使えます。
-
-PowerShell 例（`getData` を優先して最新1件をコピー）:
-
-```powershell
-New-Item -ItemType Directory -Force .\master_data | Out-Null
-$src = Get-ChildItem ..\FUSOU-PROXY-DATA\2026-04-23\kcsapi -File |
-  Where-Object { $_.Name -like '*@api_start2@getData*' } |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
-Copy-Item $src.FullName .\master_data\ -Force
-```
-
-Bash 例（Linux）:
-
-```bash
-mkdir -p master_data
-cp "$(ls -t ../FUSOU-PROXY-DATA/2026-04-23/kcsapi/*@api_start2@getData* | head -n 1)" master_data/
-```
+`generate:latest` / `generate:all` の開始時に、`FUSOU-PROXY-DATA/<period-tag>/kcs2/js/main.js` と有効な `*S@api_start2@getData*` の存在を事前チェックしてから計算を開始します。
 
 ## 推奨フロー（period-tag 更新時）
 
 `<PERIOD_TAG>` は `YYYY-MM-DD` 形式で指定します。
 
-### 1. AST・シナジー生成のみ実行（アップロードなし）
+### 1. AST・シナジー生成のみ実行（`generate:latest` はアップロードを行いません）
 
 ```bash
-pnpm run generate:latest:noupload -- --period-tag <PERIOD_TAG>
+# 最新 period-tag を生成
+pnpm run generate:latest
+
+# period-tag を明示指定して生成
+pnpm run generate:latest -- --period-tag <PERIOD_TAG>
 ```
 
-（内部で `node scripts/core/deobfuscate.js` / `extract-ast.js` / `scan-ast*.js` が順に実行されます）
+（内部で事前チェック → `node scripts/core/deobfuscate.js` → `extract-ast.js` → `scan-ast*.js` が順に実行されます）
 
 ## 🚀 AST生成とR2アップロード (Unified Pipeline)
 
 旧来の `scan` コマンド類は廃止され、AST(Abstract Syntax Tree)をベースにした抽出へと全面的に移行しました。
-現在は `FUSOU-PROXY-DATA` に保存されている最新のプロキシデータを自動で検知し、一括で生成・アップロードが可能です。
+現在は `FUSOU-PROXY-DATA` に保存されている最新のプロキシデータを自動で検知し、生成とアップロードを分離して実行できます。
 
-既定値は、今回の実測で「最速かつ参照結果と一致」と確認できた構成に寄せています。
+既定値は、Phase 同期・常駐ワーカープール型並列スキャンとゼロアロケーション評価器により、厳格さと高速性を両立した構成にしています。
 
 - strict N-1: 有効固定
 - duplicate items: 有効固定
-- workers 既定値: 最大 8
-- schedule shards 既定値: 256
+- workers 既定値: `min(論理CPU数, 16)`（常駐ワーカープール + Phase バリア同期により 16 ワーカーでも単一プロセスと完全一致）
+- 負荷平滑化: 艦ごとの単純インデックス分割ではなく、コンボ数ベースの均等 `(ai, bi)` チャンク動的スケジューリング（ワークスティール）
 - Node 実行バイナリ: `FUSOU_SCAN_NODE_BIN` 未指定時は Node 24.18.0 を優先探索
 
-`workers=16` 系は strict + duplicate mode でも参照結果との差分が確認されたため、既定値から外しています。
+### 1. シナジーJSON生成 → ローカルR2 / 本番R2へアップロード
 
-### 1. ローカルR2（開発環境）へアップロード
-
-ローカルの Cloudflare R2 エミュレータ（Miniflare）にアップロードする場合：
+生成 (`generate:latest`) とアップロード (`upload:local` / `upload:remote`) は切り離されています。
 
 ```bash
+# 1) 最新の period-tag から slot_item_effects_YYYY-MM-DD.json を生成
 pnpm run generate:latest
+
+# 2a) ローカル環境へアップロード（事前に別ターミナルで `pnpm --filter fusou-web dev` を起動しておくこと）
+pnpm run upload:local
+
+# 2b) 本番環境へアップロード
+pnpm run upload:remote
 ```
 
-- 内部で `generate-synergy-latest.sh` を実行し、最新の period-tag を自動検知します。
-- その後 `upload:local` を呼び出し、生成された `slot_item_effects_YYYY-MM-DD.json` をアップロードします。
+- `upload:local` は `http://localhost:4321/api/master-data/synergy-manifest`（`FUSOU-WEB` のローカル開発サーバー）へリクエストを送るため、未起動時は接続エラーになります。
+- 生成と本番アップロードを続けて実行する場合は `pnpm run generate:latest && pnpm run upload:remote` を実行してください。
 
 ### generate-synergy-latest の実行オプション（引数優先）
 
@@ -180,13 +170,10 @@ AST候補フィルターはデフォルト有効（`all`）です。
 指定方法（pnpm の引数フォワード）:
 
 ```bash
-# 生成のみ（アップロードなし）
-pnpm run generate:latest:noupload -- --period-tag 2026-07-08
-
-# 生成 + local upload
+# 生成（最新ではなく指定 period-tag）
 pnpm run generate:latest -- --period-tag 2026-07-08
 
-# 生成 + local upload（AST候補フィルター無効）
+# 生成（AST候補フィルター無効）
 pnpm run generate:latest -- --period-tag 2026-07-08 --no-ast-candidate-ships
 
 # 無効化専用スクリプト（period_tag は環境変数で指定）
@@ -271,7 +258,9 @@ bash scripts/generate-synergy-latest.sh \
 - 推定テスト数は `output/scan_estimated_tests_<period>.json` に出力されます。
 - 範囲指定での検証例: `--ship-range 500-700`。
 
-## AST解析は何に使っているか
+## AST解析とシナジー計算の仕組み
+
+詳細な計算アルゴリズム・残差分解モデル・常駐ワーカープール並列化・ベンチマーク結果については [docs/synergy-calculation-architecture.md](./docs/synergy-calculation-architecture.md) を参照してください。
 
 `scripts/core/extract-ast.js` は、難読化解除後の `deobfuscated.js` を `acorn` でパースし、装備ボーナスの条件テーブルと判定関数名を静的に抽出して `synergy_dict*.json` を作るために使っています。
 
@@ -296,17 +285,17 @@ pnpm run upload:remote
 ### 個別コマンド
 
 - `pnpm generate:latest`
-  - 既定では最新の period-tag を処理。`-- --period-tag YYYY-MM-DD` を渡すと指定 tag を処理し、ローカルR2へアップロード。
+  - 既定では最新の period-tag を処理して JSON を生成（アップロードは行わない）。`-- --period-tag YYYY-MM-DD` を渡すと指定 tag を処理。
 - `pnpm generate:latest:noupload`
-  - 既定では最新の period-tag を処理。`-- --period-tag YYYY-MM-DD` を渡すと指定 tag を処理（アップロードなし）。
-- `pnpm generate:latest:600-650:noupload`
+  - `generate:latest` の互換エイリアス。
+- `pnpm generate:latest:600-650`
   - 最新の period-tag を、艦ID 600〜650 に限定して生成（アップロードなし）。
 - `pnpm generate:all`
   - 存在するすべての period-tag について AST を抽出して生成（アップロードはしない）。
 - `pnpm verify:best:600-650`
   - 検証済みの最速・正確プリセットで 600〜650 を再生成し、参照結果と比較する。
 - `pnpm upload:local`
-  - 最新の JSON をローカルR2へアップロード（既定: Brotli payload）。
+  - 最新の JSON をローカルR2へアップロード（既定: Brotli payload。事前に `FUSOU-WEB` のローカル開発サーバー起動が必要）。
 - `pnpm upload:local:force`
   - 重複409（同一 period + 同一ハッシュ）時も既存 revision で upload/complete を続行。
 - `pnpm upload:local:no-br`

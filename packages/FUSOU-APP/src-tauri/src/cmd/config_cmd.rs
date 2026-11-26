@@ -250,6 +250,18 @@ const EDITABLE_CONFIG_SPECS: &[ConfigKeySpec] = &[
         key: "app.kc_window.keep_window_size_duration_millis",
         requires_restart: false,
     },
+    ConfigKeySpec {
+        key: "app.kc_window.window_mode",
+        requires_restart: true,
+    },
+    ConfigKeySpec {
+        key: "app.kc_window.dock_position",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.kc_window.dock_panel_ratio_percent",
+        requires_restart: false,
+    },
     // UI Visibility & Collapse State
     ConfigKeySpec {
         key: "app.ui.tabs.show_fleet",
@@ -663,6 +675,28 @@ fn validate_config_entry(key: &str, value: &ConfigPatchValue) -> Result<(), Stri
                 return Err(format!("{key} must be between 0 and 60000"));
             }
         }
+        ("app.kc_window.window_mode", ConfigPatchValue::String(mode)) => {
+            if !matches!(mode.as_str(), "separate" | "combined") {
+                return Err(
+                    "app.kc_window.window_mode must be 'separate' or 'combined'".to_string()
+                );
+            }
+        }
+        ("app.kc_window.dock_position", ConfigPatchValue::String(pos)) => {
+            if !matches!(pos.as_str(), "auto" | "right" | "bottom" | "left" | "top") {
+                return Err(
+                    "app.kc_window.dock_position must be 'auto', 'right', 'bottom', 'left', or 'top'"
+                        .to_string(),
+                );
+            }
+        }
+        ("app.kc_window.dock_panel_ratio_percent", ConfigPatchValue::Integer(val)) => {
+            if !(15..=80).contains(val) {
+                return Err(
+                    "app.kc_window.dock_panel_ratio_percent must be between 15 and 80".to_string()
+                );
+            }
+        }
         (
             "app.browser.url"
             | "app.discord.custom_image_url"
@@ -767,6 +801,7 @@ pub async fn get_app_configs() -> Result<AppConfigsResponse, String> {
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn save_app_configs(
+    app: tauri::AppHandle,
     updates: BTreeMap<String, ConfigPatchValue>,
 ) -> Result<SaveAppConfigsResponse, String> {
     let current_values = configs::export_user_config_values()
@@ -794,6 +829,14 @@ pub async fn save_app_configs(
         .map_err(|err| format!("Failed to save configs: {err}"))?;
 
     let updated_keys: Vec<String> = changed_updates.keys().cloned().collect();
+    if updated_keys.iter().any(|k| {
+        matches!(
+            k.as_str(),
+            "app.kc_window.dock_position" | "app.kc_window.dock_panel_ratio_percent"
+        )
+    }) {
+        crate::window::host::apply_config_layout_updates(&app);
+    }
     let restart_required_keys: Vec<String> = updated_keys
         .iter()
         .filter(|key| {
@@ -828,6 +871,118 @@ pub async fn open_config_file(app: tauri::AppHandle) -> Result<(), String> {
     app.opener()
         .open_path(config_path.to_string_lossy(), None::<&str>)
         .map_err(|err| format!("Failed to open configs.toml: {err}"))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    let parsed = Url::parse(trimmed).map_err(|err| format!("Invalid URL: {err}"))?;
+    if parsed.scheme() != "https" {
+        return Err("Only https:// URLs can be opened externally.".to_string());
+    }
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|err| format!("Failed to open external URL: {err}"))
+}
+
+fn collect_system_fonts_blocking() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        use std::collections::BTreeSet;
+        use windows_sys::Win32::{
+            Foundation::LPARAM,
+            Graphics::Gdi::{
+                EnumFontFamiliesExW, GetDC, ReleaseDC, DEFAULT_CHARSET, LOGFONTW, TEXTMETRICW,
+            },
+        };
+
+        unsafe extern "system" fn enum_font_callback(
+            lpelfe: *const LOGFONTW,
+            _lpntme: *const TEXTMETRICW,
+            _font_type: u32,
+            lparam: LPARAM,
+        ) -> i32 {
+            if lpelfe.is_null() || lparam == 0 {
+                return 1;
+            }
+            let set = &mut *(lparam as *mut BTreeSet<String>);
+            let face = &(*lpelfe).lfFaceName;
+            let len = face.iter().position(|&c| c == 0).unwrap_or(face.len());
+            if let Ok(name) = String::from_utf16(&face[..len]) {
+                let trimmed = name.trim();
+                // Skip empty entries and Windows vertical CJK variants prefixed with '@'
+                if !trimmed.is_empty() && !trimmed.starts_with('@') {
+                    set.insert(trimmed.to_string());
+                }
+            }
+            1
+        }
+
+        let mut fonts = BTreeSet::<String>::new();
+        unsafe {
+            let hdc = GetDC(std::ptr::null_mut());
+            if !hdc.is_null() {
+                let mut logfont: LOGFONTW = std::mem::zeroed();
+                logfont.lfCharSet = DEFAULT_CHARSET as u8;
+                EnumFontFamiliesExW(
+                    hdc,
+                    &logfont,
+                    Some(enum_font_callback),
+                    (&mut fonts as *mut BTreeSet<String>) as LPARAM,
+                    0,
+                );
+                ReleaseDC(std::ptr::null_mut(), hdc);
+            }
+        }
+        let mut list: Vec<String> = fonts.into_iter().collect();
+        list.sort_by_key(|name| name.to_lowercase());
+        return list;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(output) = std::process::Command::new("fc-list")
+            .args(["--format=%{family}\n"])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                return parse_fc_list_families(&stdout);
+            }
+        }
+        return Vec::new();
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        Vec::new()
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parse_fc_list_families(stdout: &str) -> Vec<String> {
+    use std::collections::BTreeSet;
+
+    let mut fonts = BTreeSet::<String>::new();
+    for line in stdout.lines() {
+        for part in line.split(',') {
+            let unescaped = part.replace("\\,", ",").replace("\\:", ":");
+            let trimmed = unescaped.trim();
+            if !trimmed.is_empty() && !trimmed.starts_with('@') {
+                fonts.insert(trimmed.to_string());
+            }
+        }
+    }
+    let mut list: Vec<String> = fonts.into_iter().collect();
+    list.sort_by_key(|name| name.to_lowercase());
+    list
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn list_system_fonts() -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(collect_system_fonts_blocking)
+        .await
+        .map_err(|err| format!("Failed to enumerate system fonts: {err}"))
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -914,6 +1069,42 @@ mod tests {
             stale_in_specs.is_empty(),
             "Key(s) listed in EDITABLE_CONFIG_SPECS no longer exist in packages/configs/configs.toml: {:?}",
             stale_in_specs
+        );
+    }
+
+    #[test]
+    fn collect_system_fonts_filters_vertical_and_empty_entries() {
+        let fonts = collect_system_fonts_blocking();
+        let mut seen = BTreeSet::new();
+        for font in &fonts {
+            assert!(!font.trim().is_empty(), "font entry should not be empty");
+            assert!(
+                !font.starts_with('@'),
+                "vertical font variant '{}' should be filtered out",
+                font
+            );
+            assert!(seen.insert(font.as_str()), "duplicate font entry '{}'", font);
+        }
+        #[cfg(windows)]
+        assert!(
+            !fonts.is_empty(),
+            "Windows system should enumerate at least one installed font family"
+        );
+    }
+
+    #[test]
+    fn parse_fc_list_families_deduplicates_sorts_and_filters() {
+        let sample = "Noto Sans CJK JP,Noto Sans JP\n@Noto Sans JP\nDejaVu Sans\nnoto sans jp\n\n  IPAexGothic  \n";
+        let parsed = parse_fc_list_families(sample);
+        assert_eq!(
+            parsed,
+            vec![
+                "DejaVu Sans",
+                "IPAexGothic",
+                "Noto Sans CJK JP",
+                "Noto Sans JP",
+                "noto sans jp",
+            ]
         );
     }
 

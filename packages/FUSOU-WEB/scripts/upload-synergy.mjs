@@ -45,7 +45,7 @@ import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { resolve, basename, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { spawnSync } from "child_process";
-import { brotliCompressSync, constants as zlibConstants } from "zlib";
+import { brotliCompressSync, gzipSync, constants as zlibConstants } from "zlib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import { readdirSync, statSync } from "fs";
@@ -82,6 +82,8 @@ function parseArgs(argv) {
     "--force",
     "--no-br",
     "--br",
+    "--gzip",
+    "--raw",
     "--help",
     "-h",
   ]);
@@ -120,13 +122,15 @@ function parseArgs(argv) {
     else if (arg === "--env") opts.env = readValue("--env", i++);
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--force") opts.force = true;
-    else if (arg === "--no-br") opts.noBr = true;
+    else if (arg === "--no-br" || arg === "--raw") opts.noBr = true;
     else if (arg === "--br") opts.br = true;
+    else if (arg === "--gzip") opts.gzip = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
   }
 
-  if (opts.noBr && opts.br) {
-    console.error("Error: --no-br and --br cannot be used together.");
+  const compressionFlags = [opts.noBr, opts.br, opts.gzip].filter(Boolean).length;
+  if (compressionFlags > 1) {
+    console.error("Error: --no-br/--raw, --br, and --gzip cannot be used together.");
     process.exit(1);
   }
 
@@ -308,16 +312,42 @@ function wranglerR2Put(r2Key, localPath, env, bucketName) {
 }
 
 // ── API calls ──────────────────────────────────────────────────────
+function isLocalUrl(urlStr) {
+  try {
+    const parsed = new URL(urlStr);
+    return (
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function apiPost(baseUrl, path, body, adminToken) {
   const url = `${baseUrl}${path}`;
   console.log(`  POST ${url}`);
   const headers = { "Content-Type": "application/json" };
   if (adminToken) headers["X-ADMIN-TOKEN"] = adminToken;
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    const cause = err?.cause;
+    const causeParts = [cause?.code, cause?.message].filter(Boolean);
+    const detail = causeParts.length > 0 ? ` (${causeParts.join(": ")})` : "";
+    const localHint = isLocalUrl(baseUrl)
+      ? `\nHint: Local FUSOU-WEB dev server does not appear to be reachable at ${baseUrl}. Start it first (e.g. \`pnpm --filter fusou-web dev\`), or use \`pnpm upload:remote\` for production.`
+      : "";
+    throw new Error(
+      `Request failed for POST ${url}: ${err?.message || err}${detail}${localHint}`,
+    );
+  }
   const rawBody = await res.text();
   let responseBody = null;
   if (rawBody) {
@@ -349,7 +379,12 @@ async function main() {
   if (!filePath) {
     filePath = findDefaultFile(opts.periodTag || null);
     if (!filePath) {
-      console.error("Error: Could not automatically find the latest slot_item_effects_YYYY-MM-DD.json in kcs-script-tools/output.");
+      console.error(
+        "Error: Could not automatically find the latest slot_item_effects_YYYY-MM-DD.json in kcs-script-tools/output.",
+      );
+      console.error(
+        "  Run `pnpm generate:latest` in kcs-script-tools first, or pass --file <path>.",
+      );
       process.exit(1);
     }
   }
@@ -357,7 +392,7 @@ async function main() {
   if (!existsSync(filePath)) {
     console.error(`Error: File not found: ${filePath}`);
     console.error(
-      "  Run `pnpm scan:volatile` in kcs-script-tools first, or pass --file <path>",
+      "  Run `pnpm generate:latest` in kcs-script-tools first, or pass --file <path>.",
     );
     process.exit(1);
   }
@@ -366,22 +401,27 @@ async function main() {
   const fileBuffer = readFileSync(filePath);
   const fileHash = sha256(fileBuffer);
   const fileSizeKB = (fileBuffer.length / 1024).toFixed(1);
-  const useBrotli =
+  const payloadCodec =
     opts.br === true
-      ? true
-      : opts.noBr === true
-        ? false
-        : opts.env === "production"
-          ? false
-          : true;
+      ? "brotli"
+      : opts.gzip === true
+        ? "gzip"
+        : opts.noBr === true
+          ? "raw"
+          : opts.env === "production"
+            ? "gzip"
+            : "brotli";
 
-  const uploadBuffer = useBrotli
-    ? brotliCompressSync(fileBuffer, {
-        params: {
-          [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
-        },
-      })
-    : fileBuffer;
+  const uploadBuffer =
+    payloadCodec === "brotli"
+      ? brotliCompressSync(fileBuffer, {
+          params: {
+            [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+          },
+        })
+      : payloadCodec === "gzip"
+        ? gzipSync(fileBuffer, { level: 9 })
+        : fileBuffer;
   const uploadSizeKB = (uploadBuffer.length / 1024).toFixed(1);
 
   let meta;
@@ -444,7 +484,7 @@ async function main() {
   console.log("=== Synergy Upload Plan ===");
   console.log(`  File:             ${basename(filePath)} (${fileSizeKB} KB)`);
   console.log(
-    `  Upload Payload:   ${useBrotli ? "brotli" : "raw json"} (${uploadSizeKB} KB)`,
+    `  Upload Payload:   ${payloadCodec === "raw" ? "raw json" : payloadCodec} (${uploadSizeKB} KB)`,
   );
   console.log(`  SHA-256:          ${fileHash}`);
   console.log(`  Period Tag:       ${periodTag}`);
@@ -461,9 +501,9 @@ async function main() {
   console.log(`  Admin Token:      ${adminTokenLabel}`);
   console.log();
 
-  if (opts.env === "production" && !useBrotli) {
+  if (opts.env === "production" && payloadCodec === "gzip") {
     console.log(
-      "  note: production upload defaults to raw json for compatibility (use --br to override)",
+      "  note: production upload defaults to gzip for Workers DecompressionStream compatibility (use --br or --raw to override)",
     );
     console.log();
   }

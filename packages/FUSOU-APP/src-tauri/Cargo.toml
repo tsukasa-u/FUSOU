@@ -20,7 +20,8 @@ serde_json = "1.0"
 dirs = "5.0.1"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "2.9.5", features = ["tray-icon", "devtools"] }
+tauri = { version = "2.9.5", features = ["tray-icon", "devtools", "unstable"] }
+tauri-runtime = "2"
 tauri-plugin-window-state = "2.4.0"
 tauri-plugin-deep-link = "2.4.3"
 tauri-plugin-process = "2.3.0"
@@ -91,7 +92,7 @@ arboard = "3.7.0"
 webview2-com = "0.39"
 windows-core = "0.62"
 winreg = "0.52"
-windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_System_Console"] }
+windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arboard = { version = "3.7.0", features = ["wayland-data-control"] }
