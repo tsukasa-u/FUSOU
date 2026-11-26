@@ -6,7 +6,7 @@ import {
   createIsolatedTestplayBuildEnvironment,
   readAndValidateTestplayWranglerConfig,
   resolveTestplaySupabase,
-  TLSN_TESTPLAY_ROUTE,
+  TLSN_TESTPLAY_CUSTOM_DOMAIN,
   TLSN_TESTPLAY_SITE_URL,
   TLSN_TESTPLAY_WORKER_NAME,
 } from "./tlsn-testplay-build-profile.mjs";
@@ -16,11 +16,12 @@ const localInputs = {
   FUSOU_TLSN_TESTPLAY_SUPABASE_ALLOWED_HOSTS: "127.0.0.1",
 };
 
-test("the dedicated Wrangler file resolves to exactly the isolated Worker and route", () => {
+test("the dedicated Wrangler file resolves to exactly the isolated Worker and Custom Domain", () => {
   const { config } = readAndValidateTestplayWranglerConfig();
   assert.equal(config.name, TLSN_TESTPLAY_WORKER_NAME);
-  assert.deepEqual(config.routes.map((route) => route.pattern), [TLSN_TESTPLAY_ROUTE]);
+  assert.deepEqual(config.routes, [{ pattern: TLSN_TESTPLAY_CUSTOM_DOMAIN, zone_name: "fusou.dev", custom_domain: true }]);
   assert.equal(config.workers_dev, false);
+  assert.equal(config.preview_urls, false);
   assert.equal(config.vars.PUBLIC_SITE_URL, TLSN_TESTPLAY_SITE_URL);
 });
 
@@ -30,6 +31,10 @@ test("the config guard rejects the normal Worker name, route, bindings, and Supa
   assert.throws(() => assertTestplayRawConfig({
     ...rawConfig,
     routes: [{ ...rawConfig.routes[0], pattern: "fusou.dev/*" }],
+  }));
+  assert.throws(() => assertTestplayRawConfig({
+    ...rawConfig,
+    routes: [{ ...rawConfig.routes[0], custom_domain: false }],
   }));
   assert.throws(() => assertTestplayRawConfig({ ...rawConfig, services: [] }));
   assert.throws(() => assertTestplayRawConfig({
@@ -42,8 +47,9 @@ test("the generated Wrangler config stays on the built TLSN Worker and has no ex
   const builtConfig = {
     name: TLSN_TESTPLAY_WORKER_NAME,
     main: "entry.mjs",
-    routes: [{ pattern: TLSN_TESTPLAY_ROUTE, zone_name: "fusou.dev" }],
+    routes: [{ pattern: TLSN_TESTPLAY_CUSTOM_DOMAIN, zone_name: "fusou.dev", custom_domain: true }],
     workers_dev: false,
+    preview_urls: false,
     send_metrics: false,
     assets: { directory: "../client", binding: "ASSETS" },
     vars: { PUBLIC_SITE_URL: TLSN_TESTPLAY_SITE_URL },
@@ -57,6 +63,7 @@ test("the generated Wrangler config stays on the built TLSN Worker and has no ex
   };
   assert.doesNotThrow(() => assertTestplayBuiltConfig(builtConfig));
   assert.throws(() => assertTestplayBuiltConfig({ ...builtConfig, name: "fusou" }));
+  assert.throws(() => assertTestplayBuiltConfig({ ...builtConfig, preview_urls: true }));
   assert.throws(() => assertTestplayBuiltConfig({
     ...builtConfig,
     kv_namespaces: [{ binding: "PRODUCTION_KV" }],

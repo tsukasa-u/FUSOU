@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { experimental_readRawConfig, unstable_readConfig } from "wrangler";
 
 export const TLSN_TESTPLAY_WORKER_NAME = "fusou-tlsn-testplay-web";
-export const TLSN_TESTPLAY_ROUTE = "tlsn-web.fusou.dev/*";
+export const TLSN_TESTPLAY_CUSTOM_DOMAIN = "tlsn-web.fusou.dev";
 export const TLSN_TESTPLAY_SITE_URL = "https://tlsn-web.fusou.dev";
 export const TLSN_TESTPLAY_OUTPUT_DIR = "dist-tlsn-testplay";
 const astroWorkerEntrypoint = "@astrojs/cloudflare/entrypoints/server";
@@ -22,6 +22,7 @@ const allowedTopLevelConfigKeys = new Set([
   "compatibility_date",
   "compatibility_flags",
   "workers_dev",
+  "preview_urls",
   "send_metrics",
   "routes",
   "assets",
@@ -126,6 +127,13 @@ export function createIsolatedTestplayBuildEnvironment(source) {
   return { environment, supabase };
 }
 
+function usesOnlyTestplayCustomDomain(routes) {
+  return Array.isArray(routes) && routes.length === 1 &&
+    routes[0]?.pattern === TLSN_TESTPLAY_CUSTOM_DOMAIN &&
+    routes[0]?.zone_name === "fusou.dev" &&
+    routes[0]?.custom_domain === true;
+}
+
 export function assertTestplayRawConfig(raw) {
   for (const key of Object.keys(raw)) {
     if (!allowedTopLevelConfigKeys.has(key)) {
@@ -136,14 +144,13 @@ export function assertTestplayRawConfig(raw) {
   if (raw.name !== TLSN_TESTPLAY_WORKER_NAME ||
       raw.main !== astroWorkerEntrypoint ||
       raw.workers_dev !== false ||
+      raw.preview_urls !== false ||
       raw.send_metrics !== false) {
     throw new Error("TLSN testplay Wrangler identity or local-isolation settings are invalid");
   }
 
-  if (!Array.isArray(raw.routes) || raw.routes.length !== 1 ||
-      raw.routes[0]?.pattern !== TLSN_TESTPLAY_ROUTE ||
-      raw.routes[0]?.zone_name !== "fusou.dev") {
-    throw new Error("TLSN testplay Wrangler config must declare only its dedicated host route");
+  if (!usesOnlyTestplayCustomDomain(raw.routes)) {
+    throw new Error("TLSN testplay Wrangler config must declare only its dedicated Custom Domain");
   }
 
   const assets = raw.assets;
@@ -169,8 +176,8 @@ function assertEffectiveConfig(config) {
   if (config.name !== TLSN_TESTPLAY_WORKER_NAME ||
       effectiveMain !== expectedMain ||
       config.workers_dev !== false ||
-      routes.length !== 1 ||
-      routes[0]?.pattern !== TLSN_TESTPLAY_ROUTE ||
+      config.preview_urls !== false ||
+      !usesOnlyTestplayCustomDomain(routes) ||
       effectiveAssets !== expectedAssets ||
       config.assets?.binding !== "ASSETS" ||
       config.vars?.PUBLIC_SITE_URL !== TLSN_TESTPLAY_SITE_URL) {
@@ -204,10 +211,9 @@ export function assertTestplayBuiltConfig(config) {
   if (config.name !== TLSN_TESTPLAY_WORKER_NAME ||
       actualMain !== expectedMain ||
       config.workers_dev !== false ||
+      config.preview_urls !== false ||
       config.send_metrics !== false ||
-      routes.length !== 1 ||
-      routes[0]?.pattern !== TLSN_TESTPLAY_ROUTE ||
-      routes[0]?.zone_name !== "fusou.dev" ||
+      !usesOnlyTestplayCustomDomain(routes) ||
       actualAssets !== expectedAssets ||
       config.assets?.binding !== "ASSETS" ||
       Object.keys(config.assets ?? {}).length !== 2 ||

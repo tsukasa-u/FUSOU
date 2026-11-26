@@ -64,6 +64,7 @@ import {
   RuntimeConfigR2ReleaseIntegrityError,
   RuntimeConfigR2ReleaseStore,
 } from "./r2-release-store.ts";
+import { cloudflareOperatorGenesisOperationId } from "./genesis-operation-id.ts";
 import type {
   CloudflareOperatorGenesisOperation,
   ReleaseBindingInstallActionResult,
@@ -88,8 +89,6 @@ const GENESIS_MAX_RECORD_BYTES = 262_144;
 const GENESIS_MAX_DELEGATION_BYTES = 8_192;
 const GENESIS_MAX_MANIFEST_BYTES = 1_048_576;
 const GENESIS_ADMIN_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
-const GENESIS_OPERATION_ID_DOMAIN =
-  "FUSOU-TLSN-CLOUDFLARE-OPERATOR-GENESIS-OPERATION-ID-V1\0";
 const GENESIS_APPROVAL_FIELDS = [
   "audience_manifest_url_sha256",
   "chain_id",
@@ -8641,27 +8640,6 @@ async function sha256Base64Url(bytes: Uint8Array): Promise<string> {
   new Uint8Array(buffer).set(bytes);
   const digest = await crypto.subtle.digest("SHA-256", buffer);
   return encodeBase64Url(new Uint8Array(digest));
-}
-
-async function cloudflareOperatorGenesisOperationId(
-  approvalBytes: Uint8Array,
-): Promise<string> {
-  const preimage = canonicalJsonBytes({
-    domain: GENESIS_OPERATION_ID_DOMAIN,
-    approval: encodeBase64Url(approvalBytes),
-  });
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", arrayBufferFromBytes(preimage)),
-  );
-  const uuid = digest.slice(0, 16);
-  uuid[6] = (uuid[6]! & 0x0f) | 0x40;
-  uuid[8] = (uuid[8]! & 0x3f) | 0x80;
-  const hex = [...uuid]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${
-    hex.slice(16, 20)
-  }-${hex.slice(20)}`;
 }
 
 function genesisConflict(

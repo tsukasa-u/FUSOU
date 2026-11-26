@@ -1,0 +1,49 @@
+# Wiring-only example. Follow docs/first-testplay-cloud-setup.md before deployment.
+name = "fusou-tlsn-verification-production"
+main = "src/index.ts"
+compatibility_date = "2026-09-07"
+workers_dev = false
+preview_urls = false
+routes = []
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
+
+[[rules]]
+type = "Text"
+globs = ["**/tlsn-origin-inventory.json.txt", "**/tlsn-target-approval.json.txt"]
+fallthrough = true
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[[durable_objects.bindings]]
+name = "TLSN_BINDINGS"
+class_name = "TlsnBindingAuthorityDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TlsnBindingAuthorityDurableObject"]
+
+[[r2_buckets]]
+binding = "TLSN_PRESENTATIONS"
+bucket_name = "fusou-tlsn-verification-production"
+
+[[queues.producers]]
+binding = "TLSN_VERIFICATION_QUEUE"
+queue = "fusou-tlsn-verification-production"
+
+[[queues.consumers]]
+queue = "fusou-tlsn-verification-production"
+max_batch_size = 1
+
+[vars]
+TLSN_ENVIRONMENT = "production"
+TLSN_DEPLOYMENT_ROLE = "production"
+TLSN_PRODUCTION_EXECUTION_MODE = "queue"
+TLSN_PRODUCTION_WORKER_NAME = "fusou-tlsn-verification-production"
+TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS = "tlsn-web.fusou.dev"
+TLSN_CANDIDATE_DEVICE_AUTH_URL = "https://tlsn-web.fusou.dev/api/auth/anonymous-sync/v2/device-proof"
+TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL = "https://tlsn-web.fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof"

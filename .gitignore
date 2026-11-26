@@ -103,6 +103,9 @@ packages/FUSOU-WEB/.seed-assets-tmp/
 packages/FUSOU-WEB/supabase/*
 !packages/FUSOU-WEB/supabase/migrations/
 !packages/FUSOU-WEB/supabase/migrations/*.sql
+!packages/FUSOU-WEB/supabase/tlsn-testplay/
+packages/FUSOU-WEB/supabase/tlsn-testplay/*
+!packages/FUSOU-WEB/supabase/tlsn-testplay/legacy-user-member-map.sql
 packages/FUSOU-WEB/supabase/.temp/
 
 packages/FUSOU-WEB/.seed-battle-tmp/

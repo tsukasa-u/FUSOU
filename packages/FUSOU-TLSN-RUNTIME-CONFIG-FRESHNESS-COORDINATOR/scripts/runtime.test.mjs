@@ -14,6 +14,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -21,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
+import { callGenesis, loadGenesisPlan } from "./genesis-operator.mjs";
 import {
   MAX_FRESHNESS_ISSUE_LEASE_MS,
   issueRuntimeConfigFreshness,
@@ -6775,6 +6777,38 @@ async function runCloudflareOperatorGenesisRuntimeTest(context) {
   const expectedGenesisOperationId = await deriveGenesisOperationId(
     context.genesisApprovalJson,
   );
+  const packageDir = mkdtempSync(resolve(context.root, "genesis-operator-"));
+  const approvalBytes = Buffer.from(context.genesisApprovalJson);
+  const approvedDigest = digest(approvalBytes);
+  writeFileSync(resolve(packageDir, "genesis-approval.json"), approvalBytes);
+  for (const [filename, bytes] of [
+    ["manifest.json", context.genesisFixture.manifestBytes],
+    ["release-record.json", context.genesisFixture.recordBytes],
+    ["release-delegation.json", context.genesisFixture.releaseDelegationBytes],
+  ]) writeFileSync(resolve(packageDir, filename), bytes);
+  await assert.rejects(loadGenesisPlan(packageDir, "A".repeat(43)), /approval digest mismatch/u);
+  const releaseRecordPath = resolve(packageDir, "release-record.json");
+  writeFileSync(releaseRecordPath, "{}");
+  await assert.rejects(loadGenesisPlan(packageDir, approvedDigest), /record.json digest mismatch/u);
+  const queryPlan = await loadGenesisPlan(packageDir, approvedDigest, { withMaterials: false });
+  assert.equal(queryPlan.requestBytes, null);
+  writeFileSync(releaseRecordPath, context.genesisFixture.recordBytes);
+  const operatorPlan = await loadGenesisPlan(packageDir, approvedDigest);
+  assert.equal(operatorPlan.operationId, expectedGenesisOperationId);
+  assert.ok(equalBytes(operatorPlan.requestBytes, context.genesisRequestBytes));
+  assert.equal(
+    (await callGenesis(privateSigner, "status", queryPlan, context.genesisAdminCapability)).status,
+    "NOT_FOUND",
+  );
+  for (const malformedStatus of [
+    { operation_id: randomUUID(), release_status: "AVAILABLE", install_status: "INSTALLED" },
+    { operation_id: expectedGenesisOperationId, release_status: "LEDGER_COMMITTED", install_status: "INSTALLED" },
+  ]) {
+    const result = await callGenesis({
+      fetch: async () => Response.json({ status: "INSTALLED", ...malformedStatus }),
+    }, "status", queryPlan, context.genesisAdminCapability);
+    assert.deepEqual(result, { operation_id: expectedGenesisOperationId, status: "RESULT_UNCONFIRMED" });
+  }
   const absentOperation = await privateSigner.fetch(
     new Request(
       `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${expectedGenesisOperationId}`,
@@ -6904,11 +6938,9 @@ async function runCloudflareOperatorGenesisRuntimeTest(context) {
     coordinatorStub.failAfterR2ReadsForLocalTest(4),
     "arm a post-admission Genesis R2 readback fault",
   );
-  const unknownInitialization = await privateSigner.fetch(
-    genesisRequest(context.genesisRequestBytes),
+  const unknownResult = await callGenesis(
+    privateSigner, "apply", operatorPlan, context.genesisAdminCapability,
   );
-  assert.equal(unknownInitialization.status, 503);
-  const unknownResult = await unknownInitialization.json();
   assert.equal(unknownResult.operation_id, expectedGenesisOperationId);
   assert.equal(unknownResult.status, "RESULT_UNKNOWN");
   assert.equal(unknownResult.release_status, "RESULT_UNKNOWN");
@@ -7301,19 +7333,27 @@ async function runCloudflareOperatorGenesisRuntimeTest(context) {
     progressBeforeInstallGet.writeFencingToken,
   );
 
-  const resultAfterLostResponse = await privateSigner.fetch(
-    new Request(
-      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${expectedGenesisOperationId}`,
-      {
-        method: "GET",
-        headers: {
-          "x-fusou-genesis-capability": context.genesisAdminCapability,
-        },
+  let sent = 0;
+  const lostResponse = await callGenesis(
+    {
+      async fetch(request) {
+        sent += 1;
+        assert.equal(request.method, "POST");
+        const response = await privateSigner.fetch(request);
+        assert.equal(response.status, 200);
+        await response.body?.cancel();
+        throw new Error("operator transport lost the response");
       },
-    ),
+    }, "apply", operatorPlan, context.genesisAdminCapability,
   );
-  assert.equal(resultAfterLostResponse.status, 200);
-  assert.equal((await resultAfterLostResponse.json()).status, "INSTALLED");
+  assert.equal(sent, 1);
+  assert.deepEqual(lostResponse, { operation_id: expectedGenesisOperationId, status: "RESULT_UNCONFIRMED" });
+  const resultAfterLostResponse = await callGenesis(
+    privateSigner, "status", queryPlan, context.genesisAdminCapability,
+  );
+  assert.equal(resultAfterLostResponse.status, "INSTALLED");
+  assert.equal(resultAfterLostResponse.release_status, "AVAILABLE");
+  assert.equal(resultAfterLostResponse.install_status, "INSTALLED");
 
   const [firstInitialization, concurrentInitialization] = await Promise.all([
     privateSigner.fetch(genesisRequest(context.genesisRequestBytes)),

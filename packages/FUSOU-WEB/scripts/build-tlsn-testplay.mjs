@@ -7,7 +7,7 @@ import {
   readAndValidateTestplayBuiltConfig,
   readAndValidateTestplayWranglerConfig,
   TLSN_TESTPLAY_OUTPUT_DIR,
-  TLSN_TESTPLAY_ROUTE,
+  TLSN_TESTPLAY_CUSTOM_DOMAIN,
   TLSN_TESTPLAY_SITE_URL,
 } from "./tlsn-testplay-build-profile.mjs";
 
@@ -33,7 +33,7 @@ try {
   if (error?.code !== "ENOENT") throw error;
 }
 rmSync(outputDirectory, { recursive: true, force: true });
-console.log(`TLSN testplay profile: site=${TLSN_TESTPLAY_SITE_URL}, route=${TLSN_TESTPLAY_ROUTE}, Supabase host=${supabase.hostname}`);
+console.log(`TLSN testplay profile: site=${TLSN_TESTPLAY_SITE_URL}, custom domain=${TLSN_TESTPLAY_CUSTOM_DOMAIN}, Supabase host=${supabase.hostname}`);
 
 for (const command of ["check", "build"]) {
   const result = spawnSync(process.execPath, [

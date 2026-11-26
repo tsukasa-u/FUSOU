@@ -433,6 +433,8 @@ and record only necessary diagnostics and digests.
 
 ### Complete APP path and the first authorized capture
 
+For the dedicated Worker, Queue, R2, Runtime Config and APP configuration, follow the [first-testplay cloud setup guide](first-testplay-cloud-setup.md).
+
 | Boundary in order | Implemented path | Evidence still needed / owner |
 |---|---|---|
 | Runtime Config / Freshness | [APP manager](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs) verifies exact signed Manifest and artifacts plus Freshness before persisting high-water state. | Release/Manifest/Freshness owners: approved Bootstrap root ID/SPKI and Manifest URL, Release record and delegation, Manifest and Freshness delegations, epoch/high-water evidence and access to the actual Gateway/Coordinator/private signer Service Bindings, DO and R2 identities/readback. Confirm operator profile versus any separately approved strict profile. |

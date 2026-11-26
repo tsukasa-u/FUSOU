@@ -1,5 +1,254 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Private initial Release operator CLI — 2026-11-26
+
+The [Genesis operator CLI](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/genesis-operator.mjs)
+checks an independently approved digest and exact input bytes offline,
+derives the same operation ID as the Coordinator, and separates status
+GET from a single explicit apply POST. The hosted Signer and its admin
+endpoint remain private. The temporary Wrangler loopback bridge allows
+one request scoped by a random token and a fixed operation/method.
+
+The pinned local runtime verified exact request material, initial
+registration, rejection of substitutions and mismatched success reports,
+and recovery of the same installed operation after response loss without
+automatic resubmission. The actual CLI reached the deployed Signer via
+Wrangler and the hosted read-only status operation refused a synthetic
+unregistered capability (`403 forbidden`). No hosted Genesis POST or R2
+write occurred. Deployment, DNS, signing-key and registration state did
+not change during this work unit. Coordinator typecheck and 73/73 runtime
+tests passed. Hosted CI was not run for this revision.
+
+The [first-release approval record](../FUSOU-TLSN-VERIFICATION-WORKER/docs/first-testplay-release-approval.md)
+collects the proposed dedicated hosts, operating profile and public trust
+inputs. It records no approval or new signing key. Approved keys and
+scope, the active Verification Worker reference and the exact initial
+Release package remain necessary before live initialization. Stage A/B/C
+and Production acceptance remain `BLOCKED`.
+
+## Verification Worker wiring preview — 2026-11-26
+
+The [first-testplay cloud setup guide](../FUSOU-TLSN-VERIFICATION-WORKER/docs/first-testplay-cloud-setup.md)
+records the dedicated endpoints, the key and delegation inputs, the
+initial Release and APP settings, and the boundary before gameplay.
+The [Verification Worker example](../FUSOU-TLSN-VERIFICATION-WORKER/wrangler.first-testplay.example.toml)
+sets the dedicated WEB proof endpoints, queue producer/consumer, R2,
+DO and version metadata. Routes, `workers.dev` and previews are disabled.
+
+Wrangler 4.135.0 confirmed the existing private Gateway and Signer
+versions at 100%, no operational Verification Worker, no Queue producers
+or consumers, and zero objects in both dedicated buckets. The example
+bundled successfully in an isolated dry run with the existing local
+WASM. That WASM's recorded SHA differs from current HEAD and the configured
+toolchain path lacks `wasm-bindgen`; this run does not verify release WASM
+provenance. Worker typecheck and forty focused Node contract tests passed.
+
+At that point Production trust inputs and public hosts were unregistered,
+and the private Genesis API only had a test caller. The operator CLI is
+now recorded above. No Worker deployment, route, Queue binding, R2 write,
+APP session, or game request was made during this work unit. Stage A/B/C
+and Production acceptance remain `BLOCKED`.
+
+## Private Runtime Config infrastructure deployed — 2026-11-26
+
+Wrangler 4.135.0 deployed the two Runtime Config Workers from source
+`0e3042c70bdecfbe774c7133449e04727f402c6f` using isolated deployment
+configurations derived from the existing examples. Neither name had an
+existing deployment. The deployment configurations disable `workers.dev`
+and Preview URLs and have no routes. Wrangler reported no deployed
+targets. There was no change to the ordinary WEB, dedicated TLSN WEB,
+test-role Verification Worker, or Verification Queue.
+
+| Worker | Active Cloudflare version | Verified bindings |
+| --- | --- | --- |
+| `fusou-tlsn-runtime-config-freshness-signer` | `cfc91dda-2f3a-48a8-915d-d81635d4c266` | New SQLite Coordinator namespace `90ed082255654a6c90be9595a31ae3a8` and dedicated `fusou-tlsn-runtime-config-first-testplay` R2 bucket |
+| `fusou-tlsn-runtime-config-freshness-gateway` | `07cab25b-7619-4bd9-9a98-e78e3a3f71ff` | Private Service Binding to that Signer |
+
+Both dry runs passed. Deployment and version readback showed each
+version active at 100% and confirmed the bindings above. An authenticated
+loopback Wrangler probe reached both hosted Workers through remote
+Service Bindings. The Gateway rejected the unconfigured Manifest with
+`503 runtime_config_unavailable` and Freshness with `503
+freshness_unavailable`. The Signer returned `404 not_found` for the empty
+R2 Manifest pointer and `403 forbidden` for Genesis without a capability.
+The Workers retain compatibility date `2026-11-13` and
+`enable_request_signal`. The loopback probe alone used `2026-09-07`
+after the CLI's bundled local runtime rejected the newer date.
+
+No operational signing keys, delegation, Genesis authorization, or
+public Manifest URL were installed. The DO namespace is provisioned;
+the Genesis state was not initialized. The release diagnostic still reports
+`BLOCKED_EXTERNAL_INPUTS`. The release owner must approve the APP
+Bootstrap public root, the exact HTTPS Manifest URL and scoped signing
+delegations before publication. The active operational Verification
+Worker and signed Worker reference are separate pending inputs to the first
+Manifest. No APP run, game traffic, or fresh Hosted CI run occurred in this
+work unit. Stage A/B/C and Production acceptance remain `BLOCKED`.
+
+## Dedicated Queue, private R2 and Worker endpoint preparation — 2026-11-26
+
+Wrangler created the dedicated `fusou-tlsn-verification-production`
+Queue and two separate R2 buckets. The verification archive uses
+`fusou-tlsn-verification-production`. The Runtime Config release
+ledger uses `fusou-tlsn-runtime-config-first-testplay`. Both buckets
+reported APAC, zero objects and disabled public access. No custom
+domains are attached to either bucket. The Queue has zero producers
+and consumers. Existing Workers, buckets and Queue bindings were
+preserved.
+
+Worker reference acquisition previously rejected any Worker Route
+in the Custom Domain's zone and assumed a 32-character Custom Domain
+ID. Cloudflare returned the ordinary WEB and shortener routes in the
+active zone and a longer opaque ID for the dedicated WEB Custom Domain.
+The observer now accepts other literal hostnames in the same zone and
+records the sorted route-pattern digest as mapping schema 2. It still
+rejects same-host, wildcard-host, ambiguous or incomplete observations.
+It rechecks the endpoint mapping and route inventory before accepting
+the reference. The existing route-free and `workers.dev` mapping
+formats still use schema 1. The fixed observer reproduced a valid
+mapping from the authenticated Cloudflare control-plane response for
+`tlsn-web.fusou.dev`. That is endpoint-mapping evidence for the WEB,
+independent of any future Verification Worker deployment. Node 22.16.0
+passed all 115 candidate APP handoff and Worker reference tests and all
+174 release tag contract tests.
+
+At the end of that work unit, the resources were empty and unbound. The Runtime Config publisher
+diagnostic still reports the Manifest signer as `NOT_CONFIGURED` and
+the root-signed delegation, APP Bootstrap root and Manifest URL as
+`NOT_REGISTERED`. The next dependency is an independently approved
+key and endpoint registration for the exact first-testplay scope.
+The operational Verification Worker, Runtime Config Gateway and
+private Signer were not deployed. No object, message, signature,
+Session, APP run or game request was produced in this work unit.
+
+## Hosted private Verification Worker Session test — 2026-11-26
+
+The separately deployed test-role Worker `fusou-tlsn-session-testplay`
+served version `ded6c9d9-73f2-465d-941b-716867526293` at 100%.
+Cloudflare reported no routes, Custom Domain, `workers.dev` endpoint
+or Preview URL. A local authenticated
+[remote Service Binding](https://developers.cloudflare.com/workers/local-development/#using-remote-resources-with-durable-objects-and-workflows)
+invoked a test-only wrapper around the real Verification Worker handlers.
+The wrapper accepted only test-role health and Session requests. The
+Worker had its own SQLite Durable Object and separate temporary test
+Session, Binding and Result keys. The wrapper and deployment config were
+generated in an isolated checkout and were not committed.
+
+Worker source and WASM provenance matched
+`0e3042c70bdecfbe774c7133449e04727f402c6f`. The WASM build used Rust 1.98.1,
+wasm-pack 0.15.1, wasm-bindgen 0.2.128 and Binaryen 133. The build ran
+with Cargo offline. Worker typecheck and the deployment dry run passed.
+An initial health check returned HTTP 503
+`unknown_test_execution_mode` for an explicit `sync` value. Omitting
+the optional test-mode setting selected the supported default.
+
+Health returned HTTP 200 with test role, Supabase authentication,
+external device proof and random binding. With live
+`tlsn-web.fusou.dev` and the dedicated Supabase, missing authentication
+returned 401, the other owner returned 403 and the enrolled owner got
+201. Independent Ed25519 checks matched the Session receipt and grant
+to the previously pinned test public key, exact owner/device, nonce,
+binding and 180-second lifetime. A different key and a modified
+receipt binding were rejected by the independent check. Reusing the
+authentication proof returned 409. The issued Session context drove a
+WEB possession proof that returned 200. PostgreSQL held exactly one
+authentication proof and one possession proof linked to that device.
+The read-only replay response was 409 and matched the possession row
+without changing the stored rows.
+
+The two users, their test device and its proof, nonce and member
+mapping rows were cleaned up, with zero matching rows on readback.
+The local relay was stopped. The private test Worker remains deployed.
+Production authority registration, Production Verification Worker,
+Runtime Config/Freshness, APP enrollment and same-host Notary remain
+open. No game communication or Presentation verification was attempted.
+Stage A/B/C and Production acceptance remain `BLOCKED`.
+
+## Dedicated TLSN WEB live proof verification — 2026-11-26
+
+`fusou-tlsn-testplay-web` serves
+[tlsn-web.fusou.dev](https://tlsn-web.fusou.dev/) at Worker version
+`482d6be4-6388-430e-9404-ba07e87f2750`. The root returned HTTPS 200.
+The configured Custom Domain lets Cloudflare manage DNS and TLS for the
+new hostname. The ordinary WEB and URL-shortener route mappings were
+unchanged in the Cloudflare readback. The source baseline was
+`0e3042c70bdecfbe774c7133449e04727f402c6f` plus the uncommitted dedicated
+domain configuration and matching build guard. The guard disables the
+`workers.dev` and preview URLs and rejects any other hostname. All five
+profile tests, the Astro build and the deployment dry run passed.
+
+The WEB points to the separately approved Supabase project
+`fusou-tlsn-testplay` (`yakmlupdjpgsbxfopjja`). The initial Auth probe
+received HTTP 401 because the CLI's modern server key was masked. A
+server-only service-role credential was verified against the dedicated
+project before redeploying. Credential values were kept out of the
+source, build inputs and recorded evidence.
+
+Two temporary non-anonymous accounts signed in through Supabase Auth.
+The service-only registration RPC enrolled a temporary Ed25519 device
+for the first account. The public challenge endpoint returned HTTP 200.
+Both device-proof endpoints returned HTTP 401 without a bearer token,
+HTTP 403 for the other owner, HTTP 200 for the owner, and HTTP 409 on a
+duplicate. The dedicated PostgreSQL returned one authentication proof,
+one possession proof and one consumed nonce. Read-only replay
+observation returned HTTP 409 and the exact stored possession row,
+with no change to the proof rows. The fixture users, device, proof rows,
+nonce and member mapping were removed. A read-only query verified zero
+rows for those fixture IDs after cleanup.
+
+This verified the live WEB/Auth/database boundary. The possession
+request used a temporary test Session context. The public APP enrollment
+path, Verification Worker Session issuance, Runtime Config/Freshness
+publication and same-host Notary are pending. No game traffic was sent.
+Stage A/B/C and Production acceptance remain `BLOCKED`.
+
+## Dedicated first-testplay infrastructure preparation — 2026-11-26
+
+The source baseline was `0e3042c70bdecfbe774c7133449e04727f402c6f`.
+[Candidate run #146](https://github.com/tsukasa-u/FUSOU/actions/runs/45737507898)
+passed all four jobs. The [Linux verification artifact](https://github.com/tsukasa-u/FUSOU/actions/runs/45737507898/artifacts/15080792936)
+matched the GitHub ZIP digest and pinned source SHA. The Debian package was
+29,579,082 bytes with SHA-256
+`6724becee367a5f9f3ed5d606baec668a9ad74c2b62bb70df31e54e94a26c864`.
+It was inspected without installation. A game-ready APP still needs approved
+public Bootstrap inputs.
+
+Wrangler 4.135.0 confirmed separate active deployments for the ordinary
+`fusou` WEB and the legacy TLSN test, canary and replay Workers. The planned
+`fusou-tlsn-testplay-web`, `fusou-tlsn-verification-production`,
+`fusou-tlsn-runtime-config-freshness-gateway` and
+`fusou-tlsn-runtime-config-freshness-signer` returned Worker-not-found
+in the selected account. The existing `fusou-tlsn-verification-test` Queue
+has the legacy test Worker as both producer and consumer.
+Wrangler dry runs passed for the Gateway, private Signer and Verification
+Worker, with a temporary Queue binding for the last. The Verification
+Worker dry run used cached WASM from `0dd7a8e92d3ad90b7fc6a9865741c9273266534c`
+and serves as a configuration check. A deployment needs newly verified
+WASM provenance for its approved source.
+
+The operator approved a separate zero-dollar Supabase project in Tokyo
+named `fusou-tlsn-testplay` with ref `yakmlupdjpgsbxfopjja`. CLI 3.2.0
+applied the first two pinned migrations, the existing pristine-only
+legacy prelude, then all 23 remaining original migrations. Postgres
+17.12 reported all 25 original migration IDs in order, the UUID cutover,
+proof storage RLS, and the service-role-only consume and replay RPCs.
+Auth users, registered devices and proof rows were all zero at readback.
+The prelude SHA-256 was
+`3ec53be2b00c0d96baaadcd189c52e9755d832157b905d4783d3d613acfcc7a7`.
+It was previously ignored by Git. The narrow ignore exception exposes
+only that SQL file for the next commit.
+
+The dedicated WEB built from the isolated source copy using the new
+Supabase public origin and its single-host allowlist. The generated
+Wrangler config passed the repository guard for `tlsn-web.fusou.dev/*`
+and the deployment dry run. The WEB build did not use service-role
+credentials. Live proof requests remain untested.
+
+Cloudflare deployment, real key and authority registration, Auth
+enrollment, Session issuance and same-host Notary preflight remain open.
+No game hostname was selected and no game traffic was sent. Stage A/B/C
+and Production acceptance remain `BLOCKED`.
+
 ## APP release tag contract repair
 
 [Candidate run #145](https://github.com/tsukasa-u/FUSOU/actions/runs/45682873014)
