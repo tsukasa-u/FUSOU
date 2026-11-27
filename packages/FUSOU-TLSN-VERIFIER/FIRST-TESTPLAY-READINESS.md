@@ -1,5 +1,353 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Signed retirement of an unconfirmed Freshness issue — 2026-11-27
+
+Read-only Cloudflare SQLite queries found exactly one issue with
+`RESULT_UNKNOWN`, a retained blocker and a persisted signing claim. Its
+response bytes, length and digest are all absent. The Release is still
+`AVAILABLE`. The query wrote zero rows. This leaves no finalized response
+to read back, and does not establish whether a signature was computed.
+
+The local Coordinator adds a private DO RPC for retiring that exact class of
+issue. The operator presents a canonical Ed25519 approval verified against a
+separately configured recovery key. The approval covers the Coordinator ID,
+profile, chain, restore epoch, issue ID, request digest, old fence, installed
+state, incident ID and validity window. One SQLite transaction records the
+approval and receipt, advances the fence, and permanently rejects the old
+operation while preserving its request and nonce. [Cloudflare SQLite transactions](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transactions)
+
+An exact authorized replay returns the same receipt, including after a
+restart. New Freshness requests remain blocked on the retired Release state.
+The existing writer may advance to a newly verified Release, after which
+only new challenges can be issued. The regression includes a real fixture
+signature lost before finalization and tests rejection of that late signature.
+A caller with an unregistered key, an out-of-window approval, or mismatched
+target, request, installed state or fence cannot perform the retirement.
+
+The Coordinator runtime suite passed 75/75 with zero skips or RPC disposal
+warnings. Coordinator typecheck passed. The retirement regression uses a
+generated test authority and isolated SQLite/R2 state. The deployed Signer has no recovery key or management route for this
+operation. This change has not been deployed or verified in Hosted CI. The
+live issue remains retained and the Gateway remains private. Stage A/B/C and
+Production acceptance remain `BLOCKED`.
+
+## Freshness UTC comparison fixed in the local candidate — 2026-11-27
+
+An isolated Coordinator runtime test reproduced a post-claim failure with the
+Worker clock one millisecond behind the Coordinator. Before the fix, the
+release-state reader returned `RESULT_UNKNOWN` before reaching R2. The fix
+compares the two clock observations after exact R2 readback and before the
+reader accepts the Release as current. The Coordinator's persisted monotonic
+check and the Manifest, Release and delegation validity checks remain in
+effect. Cloudflare documents that deployed Workers' timers advance after I/O.
+[Workers timer behavior](https://developers.cloudflare.com/workers/runtime-apis/performance/)
+
+When the Worker clock catches up during readback, the runtime test verifies one
+signature and exact finalized bytes. With a persistent mismatch it verifies
+zero signatures and a retained `RESULT_UNKNOWN` blocker. The private Signer
+now logs the phase and a fixed error code when a caught failure leaves an
+issue unconfirmed. The deployed failure could still have occurred at another
+post-claim step. Its exact cause remains unconfirmed.
+
+Node 22.16.0 passed Domain tests (33/33), Coordinator runtime tests (74/74),
+both typechecks and the Gateway runtime suite. The existing candidate
+workflow covers these checks.
+Changes are local. The deployed retained issue and Release were left alone.
+A recovery path with evidence or authorized fencing is still required for that
+issue, followed by a fresh Worker observation and signed Release update.
+Hosted verification of this change is `NOT_CHECKED`. The Gateway remains
+private. Stage A/B/C and Production acceptance remain `BLOCKED`.
+
+## Initial Runtime Config installed privately; Freshness blocked — 2026-11-27
+
+The initial Manifest V3 for selected Worker source
+`c25f1b71e830ab2fd27fcb07f67bff9c4e847dcf` was issued after authenticated
+Cloudflare deployment and Custom Domain readback. The independent approval,
+the Manifest signature, exact bytes of all five artifacts, and trust pins
+verified locally. The epoch 1 Manifest SHA-256 (unpadded base64url) is
+`Ie2WDzdZpQztaQ2-OU-oUP0rciseSU-chAYrhaQ2aVk`. Its Worker reference age
+window ended at `2026-11-27T03:29:26.365Z`.
+
+Seven objects were placed in the dedicated private R2 bucket. The immutable
+artifacts and snapshot were written with create-only conditions. The Manifest
+pointer was created only if absent, after the immutable byte readbacks.
+The signed Release Commit Record binds the actual pointer ETag
+`33692ea865e24422385b0325fda6647c` and has digest
+`ingKZfCu_F_zWn8sgp8oqcWLrWGzoMTgblbh3Vb1zso`.
+Separate Release and Freshness delegations were verified before enrolling
+the two child keys and management capabilities on the private Signer.
+The Bootstrap and approval private keys stayed local.
+
+Signer version `3bde1d70-efc9-41af-8d93-88e9d2c546e5` registered
+Genesis operation `7467e54c-9d93-435c-b24b-751b65e59097` once through the
+private Service Binding. The apply response and subsequent read-only status
+both reported `INSTALLED`, Release `AVAILABLE`, install `INSTALLED`.
+The initial `NOT_FOUND` status uses CLI exit code 1. That status stopped the
+first shell sequence before it sent an apply. The subsequent sequence sent
+the first and only apply.
+
+Through a private Service Binding to Gateway version
+`55aecfbc-8363-4c11-b15c-c1251a5a7a2e`, the Manifest, immutable snapshot, and
+all five artifacts returned HTTP 200 with the expected exact bytes. The
+Freshness POST returned HTTP 502 `invalid_freshness_response`. The Signer
+diagnostic showed `private_signer_result_not_finalized`.
+A read-only Coordinator query confirmed one issue in `RESULT_UNKNOWN` with
+the signing claim and blocker retained. The Release remained `AVAILABLE`
+and current state stayed installed. The query wrote zero rows. The exact
+failure point after the signing claim is unconfirmed. The Gateway and Signer
+remain private. No Custom Domain was added for `tlsn-config.fusou.dev`.
+
+Preserve the installed Release and issue blocker while diagnosing the
+post-claim path. Use an isolated reproduction for new challenges. Follow the
+existing [Unknown and recovery contract](docs/runtime-config-freshness-contract-revision-proposal.md)
+before any production recovery. The selected revision exposes no operator
+recovery RPC for this retained issue. Refresh the Worker observation and
+advance the signed Release through the supported path before APP testing once
+recovery is possible. Live APP and Game Server traffic were not started.
+Stage A/B/C and Production acceptance remain `BLOCKED`.
+
+## Independently signed approval for the initial Manifest — 2026-11-27
+
+The operator approved registration of a separate approval authority for the
+first testplay Manifest. Its Ed25519 public key is pinned in the local
+operator tooling for source `c25f1b71e830ab2fd27fcb07f67bff9c4e847dcf`,
+epoch 1 and `https://tlsn-config.fusou.dev/tlsn/runtime-config/v2/manifest.json`.
+The approval signature binds the Bootstrap root, exact Manifest delegation
+bytes and approved configuration digest. The initial preparation path checks
+the approval before Cloudflare observation and again before signing. The
+generic publisher still has its existing registration gate.
+
+The Bootstrap root and Manifest child were generated separately from the
+approval key. Private material remains in the task's permission-restricted
+local directory. Local verification passed on the actual public Bootstrap
+pin, root-signed Manifest delegation and independently signed approval.
+The delegation expires at `2026-11-28T00:46:27.524Z`. Re-observation of the
+Worker is still required before issuing a current Manifest.
+
+Read-only Cloudflare checks found the expected private Gateway-to-Signer
+binding, Signer DO/R2 bindings, zero objects in the dedicated R2 bucket, and no
+exact-name DNS record or Custom Domain for `tlsn-config.fusou.dev`. No Manifest
+has been issued. Release/Freshness authority setup, R2 staging, Genesis,
+Gateway publication and APP verification are pending. Neither cloud-side
+signing secrets nor real Game Server connections were used in this check.
+
+Local Node 22.16.0 passed 119 candidate handoff tests and 73 Coordinator
+runtime tests with zero failures or skips. The new regression rejects a
+caller-signed approval before Cloudflare access. Hosted CI for the tooling
+change is `NOT_CHECKED`. Stage A/B/C and Production acceptance are `BLOCKED`.
+
+## Public Verification Worker and initial Runtime Config inputs — 2026-11-27
+
+The dedicated [Verification Worker health endpoint](https://tlsn-verify.fusou.dev/health)
+now serves `fusou-tlsn-verification-production`. Before assigning the Custom
+Domain, the Cloudflare control plane reported no exact-name DNS record, no
+existing Custom Domain for the hostname, and only the existing disjoint
+`fusou.dev/*` and `s.fusou.dev/*` Worker Routes. The single managed domain was
+added with preview routing disabled. Readback confirmed the same Zone, Worker,
+deployment and active version `53c99c10-d39e-4263-a558-fae8159a2277` at 100%.
+The two regular-site Worker Routes remained as before.
+
+Public HTTPS certificate validation succeeded. `GET /health` returned 200
+with the selected SHA `c25f1b71e830ab2fd27fcb07f67bff9c4e847dcf`, matching
+active version, Production role, random binding, Queue mode and a valid trust
+contract. Unauthenticated requests to `POST /attestation/session` and
+`POST /verify/tlsn` both returned 401. This confirms the hosted response and
+denial paths. Authenticated Session issuance, Queue execution for a real
+Presentation and Result delivery remain unchecked.
+
+The local APP Worker reference was captured by validating the independently
+pinned deployment record and two authenticated Cloudflare observations of the
+active version and route mapping. The reference is 7,019 bytes with SHA-256
+(unpadded base64url)
+`46AvVyrfUPoPpwFNIpfs0nqqvMdRHqnvUmAUMqTia98`. The exact reference,
+Inventory and Target Approval from the selected SHA, security registry set,
+and Result registry envelope passed local independent-input checks against the
+unsigned initial payload. The configuration digest for the proposed
+`tlsn-config.fusou.dev` Manifest URL is
+`kW8e3nTW3X09IBeYBxJ5x-k2V6NSd-L7ot7hUC5O6mU`. Re-observe the Worker when
+issuing a time-sensitive Manifest.
+
+The private Runtime Config Gateway has its Signer Service Binding. The
+private Signer has its DO and R2 bindings. The readback showed no registered
+Manifest URL or signing bindings on these active versions. The next release
+work is signing authority registration, initial Manifest and Release Record
+issuance, R2 readback and Genesis install. The unsigned inputs are local
+preparation. Stage A/B/C and Production acceptance remain `BLOCKED`. No Game
+Server was selected or contacted in this check.
+
+## Wrangler deployment evidence for the APP Worker reference — 2026-11-27
+
+The [APP Worker reference tool](../FUSOU-TLSN-VERIFICATION-WORKER/scripts/capture-app-worker-reference.mjs)
+now accepts an independently pinned `operator-wrangler-v1` record. Successful
+candidate CI is recorded against the selected source SHA. Wrangler deployment
+evidence records the account, script, logical deployment, actual deployment,
+active version and the approved public manifest bytes. The tool still reads
+the active Cloudflare version, public bindings and custom domain mapping before
+emitting the reference. Manifest preparation re-observes the same deployment
+before signing. Workflow-issued deployment provenance remains supported.
+
+Before the public domain assignment, for selected SHA `c25f1b71e830ab2fd27fcb07f67bff9c4e847dcf`,
+[candidate CI #147](https://github.com/tsukasa-u/FUSOU/actions/runs/45906069426)
+passed on attempt 1. A read-only Wrangler check confirmed the same Wrangler
+deployment `f87a78d2-5e50-4977-930d-5b508aac37da`, version
+`53c99c10-d39e-4263-a558-fae8159a2277` at 100%, 18 expected public
+bindings and the version-metadata binding. The local operator draft binds the
+existing public-manifest bytes and the recorded WASM build digest. Its
+SHA-256 (unpadded base64url) is
+`wIlQRklbFhSIBhnn5AGApuDuJP9XLfFfoFu7G7_ohmc`. This is a draft
+digest from the local preparation. The Worker is still private and no
+final APP Worker reference has been issued.
+
+Local Node 22.16.0 passed all 118 candidate handoff tests and all 174 tag
+contract tests, with zero failures or skips. The operator-profile test covers
+delegated Manifest V3 preparation, exact Worker-reference digest, and rejection
+when the active version differs. Deployment and signing in these tests use
+fixtures. Hosted CI for this tooling change is `NOT_CHECKED`.
+
+The next live checks at that point were binding the dedicated
+`tlsn-verify.fusou.dev` custom domain, reading its route back to produce the
+APP Worker reference, and registering the Runtime Config signer and initial signed release. The
+[cloud setup runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/first-testplay-cloud-setup.md#配備ワークフローとwranglerの証跡)
+records both provenance inputs and the configuration order. APP live handoff
+and actual Game Server capture are pending. Stage A/B/C and Production
+acceptance are `BLOCKED`.
+
+## Dedicated operational Verification Worker active privately — 2026-11-27
+
+Wrangler 4.135.0 deployed `fusou-tlsn-verification-production` from
+`c25f1b71e830ab2fd27fcb07f67bff9c4e847dcf` with the verified
+candidate-bound WASM. Cloudflare reports version
+`53c99c10-d39e-4263-a558-fae8159a2277` at 100% and Binding Authority
+namespace `6c0b2bf36db1483e8e7aad1b603f8437`. The dedicated
+Verification Queue has one producer and one consumer. Its separate
+archive R2 and the Runtime Config R2 both had zero objects. The
+Worker was deployed with routes empty and `workers.dev` and preview
+URLs disabled.
+
+The active version exposes exactly the four intended secret binding
+names for Session, Binding, Result and Queue execution signing. Their
+public bindings matched the prepared settings. Notary private material
+and the Result Registry root private key were kept local. Through a
+temporary Wrangler remote Service Binding, hosted `/health` returned
+HTTP 200 with the expected source SHA, active version, Production role,
+random binding, Supabase auth, Queue execution,
+`trust_contract_valid=true` and
+`queue_execution_receipt_configured=true`. Unauthenticated
+`/attestation/session` and `/verify/tlsn` both returned 401. No active
+user/device, Presentation, Queue job or Result was created by this
+check.
+
+The actual private deployment and a validated draft public manifest
+are recorded separately. The candidate public name
+`tlsn-verify.fusou.dev` was exercised in a triggers dry run only.
+At the time of this deployment, APP Worker-reference acquisition required both a public
+Cloudflare endpoint mapping and independently approved deployment
+provenance with `workflow_file_identity=dotenvx+pnpm+wrangler`.
+Candidate Actions #147 verified the source and build; this Worker was
+deployed separately by Wrangler. No workflow-issued Production
+provenance was derived from #147. The handoff path must be able to
+represent the observed deployment truthfully before this version is
+bound into a signed initial Runtime Config. The public route,
+initial Runtime Config, APP live handoff, operational Notary start and
+game capture are pending. Stage A/B/C and Production acceptance remain
+`BLOCKED`.
+
+## Dedicated Notary and Verification Worker authority inputs prepared — 2026-11-27
+
+The candidate remains `c25f1b71e830ab2fd27fcb07f67bff9c4e847dcf`. A
+single-operator enrollment draft uses `fusou-first-testplay-notary` at
+`127.0.0.1:47047`; no listener was present at the time of the placement
+check. Separate keys were generated for Notary K256, Session Authority,
+Binding Authority, Result signing, Queue execution receipts, and the
+Result Registry root. Private files are `0600` in a `0700` directory
+outside Git. The Result Registry root is retained locally. The three
+authority registry entries have a 30-day initial validity window.
+
+The signed Result Registry envelope, both authority registries and the
+Security Registry Set were validated against the candidate's exact inputs.
+The ordinary candidate Notary's `export-public` matched the planned
+public bytes exactly and refused an altered K256 pin. A disposable
+anchor was used for that key/configuration check and was removed; no
+operational origin anchor, Notary ledger, or listener was established.
+
+The candidate Verification Worker returned HTTP 200 in the isolated
+runtime with `trust_contract_valid=true`, `production` role, `random`
+binding, `queue` execution and
+`queue_execution_receipt_configured=true`. Substituting the Result
+public key for the Queue execution public key yielded HTTP 503. The
+worker made zero outbound requests during those checks. The public-only
+configuration passed Wrangler dry run with routes, preview URLs and
+`workers.dev` disabled.
+
+The status is `PREPARED_NOT_REGISTERED`. No secrets were uploaded,
+no Worker was deployed, and no approved Manifest or Game Server was
+selected. The prepared public inputs can be used for the dedicated
+Worker setup. Before the Notary is started for a real capture, the
+chosen host's authorized certificate chain, exact approved Runtime
+Config and the independently pinned registration must pass preflight.
+
+## Candidate-bound operational Notary binary verified locally — 2026-11-27
+
+Following the predeployment check below, the isolated checkout of
+`c25f1b71e830ab2fd27fcb07f67bff9c4e847dcf` restored only the tracked shared
+dependency `packages/configs/configs.toml`. Its Git blob matched the
+candidate. APP roaming configuration remained absent. The normal
+`operational-notary` release built on Linux x86-64 with Rust 1.98.1,
+`--locked --offline` and no fault-injection feature. The Proxy lockfile
+did not change. The executable is 23,199,448 bytes, mode `0755`, with
+SHA-256 `7b64c306cdd7e8e1fb50a62e6d31264c6ec8051be4c88c8e6d8bfa2b1a005301`.
+
+Both hosted selectors were run locally against those exact executable
+bytes in the isolated release-profile harness. Complete Presentation and
+same-ledger restart passed. Invalid non-loopback, noncanonical or
+mismatched settings were refused before side effects. Both ran one test
+with zero failures or skips. The copied binary and the pre/post-test
+digests matched. The test used synthetic inputs and loopback only.
+
+The local build gap in the previous record is resolved. Operational Notary
+keys and registration, the actual service instance and ledger, Verification
+Worker signing inputs and deployment remain pending. No game or other
+external service was contacted by the Notary tests.
+
+## Candidate-bound Verification Worker predeployment — 2026-11-27
+
+[Candidate run #147](https://github.com/tsukasa-u/FUSOU/actions/runs/45906069426)
+completed all four jobs at `c25f1b71e830ab2fd27fcb07f67bff9c4e847dcf`.
+The Verification Worker WASM was rebuilt offline from that exact SHA in
+an isolated checkout using Rust 1.98.1, wasm-pack 0.15.1, wasm-bindgen
+0.2.128, Binaryen 133 and Clang 18.1.3. Worker typecheck and provenance
+passed. The resulting WASM SHA-256 is
+`84012792173d14b9a2c89799f2e63e94fa2f0476592c1e82e07d507077577223`.
+
+The Worker dry run used that WASM, the dedicated Supabase project's
+publishable configuration and the existing WEB proof endpoints.
+The Worker contract verified the exact Inventory and Target Approval
+inputs for all 20 recorded entries without selecting or contacting a
+game host. The preview config has the dedicated verification Queue as
+producer and consumer, archive R2, Binding Authority DO, version
+metadata, and no public route or preview URL. Both live WEB endpoints
+returned 401 to unauthenticated requests. The local Worker preview
+returned 503 with `trust_contract_valid=false` with its signing and
+registry inputs absent.
+
+Wrangler readback showed no deployed operational Verification Worker,
+zero Verification Queue producers and consumers, zero objects in both
+dedicated R2 buckets, and the existing private Gateway and Signer
+versions active at 100%. Cloudflare and Supabase configuration was
+unchanged in this work unit.
+
+Hosted #147 also passed its normal operational Notary build and interop
+step at the same SHA. The separate local Notary build did not produce a
+binary. The isolated file selection omitted the compile-time `configs`
+dependency's `configs.toml`. Automatic approval review rejected adding
+that file to the isolated checkout, so it was not read or restored in
+this work unit. The hosted Notary step did not publish the executable as
+an artifact. The next deployment work is to establish the actual
+same-host Notary public material, Session/Binding/Result signing and
+registry inputs, and verify the complete Worker configuration before
+deployment. APP Bootstrap enrollment, signed Runtime Config
+publication, game capture and formal Evidence acceptance remain open.
+
 ## Private initial Release operator CLI — 2026-11-26
 
 The [Genesis operator CLI](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/genesis-operator.mjs)

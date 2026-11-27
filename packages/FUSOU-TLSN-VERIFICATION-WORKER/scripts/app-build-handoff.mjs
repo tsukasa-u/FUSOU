@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { assertWorkerEndpointMapping } from "./app-worker-endpoint-mapping.mjs";
+import { assertAppWorkerReleaseContext } from "./app-worker-operator-context.mjs";
 import {
   assertNotaryRegistryConsistency, assertResultSigningIdentity, canonicalJson,
 } from "./production-trust-contract.mjs";
@@ -163,8 +164,7 @@ export function assertBuildReference(reference, expectedWorkerSha) {
   const cf = reference.cloudflare;
   exactFields(cf, ["account_id", "script_name", "deployments_source", "version_source",
     "deployment_id", "created_on", "version_id", "percentage", "checked_public_bindings"], "Cloudflare reference");
-  exactFields(reference.release_context, ["workflow_run_id", "workflow_run_attempt", "git_commit_sha",
-    "repository", "workflow_file_identity", "deployment_role"], "approved release context");
+  assertAppWorkerReleaseContext(reference.release_context, cf, inputs.FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID);
   exactFields(cf.checked_public_bindings, publicBindingNames, "checked public bindings");
   const source = `https://api.cloudflare.com/client/v4/accounts/${cf.account_id}/workers/scripts/${cf.script_name}`;
   if (reference.schema_version !== 2 || reference.scope !== "tlsn-app-approved-worker-deployment-reference" ||

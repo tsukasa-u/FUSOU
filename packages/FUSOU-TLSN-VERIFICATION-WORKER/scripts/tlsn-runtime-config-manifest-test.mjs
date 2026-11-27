@@ -45,8 +45,19 @@ import {
   version1,
   version2,
 } from "./app-worker-reference-fixture.mjs";
-import { createAppWorkerReference } from "./app-worker-deployment-reference.mjs";
+import {
+  activeDeployment,
+  approvedProductionRelease,
+  createAppWorkerReference,
+} from "./app-worker-deployment-reference.mjs";
 import { productionSecurityRegistrySetHash } from "./security-registry-set-contract.mjs";
+import {
+  assertInitialManifestSigningApproval,
+  assertSuccessorManifestSigningApproval,
+  FIRST_TESTPLAY_MANIFEST_APPROVAL_AUTHORITY,
+  manifestSigningApprovalBytes,
+  manifestSigningApprovalMessage,
+} from "./tlsn-runtime-config-production-registration.mjs";
 
 const signerKeyId = "runtime-config-test";
 const keyPair = generateKeyPairSync("ed25519");
@@ -1170,6 +1181,138 @@ test("Release update preparation returns independently verifiable V3 material wi
     expectedObjects.at(-1).key,
     "tlsn/runtime-config/v2/manifest.json",
   );
+});
+
+test("initial Manifest approval binds the authoritative source, URL, root, and exact delegation", async () => {
+  const prepared = preparedOptions();
+  const approvalKey = generateKeyPairSync("ed25519");
+  const authority = {
+    keyId: "test-registration-approval",
+    publicKeySpki: approvalKey.publicKey.export({ format: "der", type: "spki" }).toString("base64url"),
+    sourceSha: prepared.payload.source.worker_git_commit_sha,
+    manifestUrl,
+  };
+  const options = {
+    prepared, trustedSigner, signerProvider: testSignerProvider(), policy: policy(prepared),
+    manifestAuthorityDelegationRaw: manifestDelegation(prepared).raw,
+  };
+  const approvalBytes = manifestSigningApprovalBytes({ ...options, authority });
+  const signatureBytes = sign(null, manifestSigningApprovalMessage(approvalBytes), approvalKey.privateKey);
+  const approval = { approvalBytes, signatureBytes };
+  const registered = { ...options, initialManifestSigningApproval: approval };
+  assert.doesNotThrow(() => assertInitialManifestSigningApproval(registered, authority));
+  const changed = [
+    { policy: { ...options.policy, manifest_url: "https://other.example.org/tlsn/runtime-config/v2/manifest.json" } },
+    { prepared: preparedOptions(referenceRaw(), release, "2") },
+    { manifestAuthorityDelegationRaw: Buffer.concat([options.manifestAuthorityDelegationRaw, Buffer.from(" ")]) },
+    { trustedSigner: { ...trustedSigner, key_id: "different-root" } },
+    { initialManifestSigningApproval: { ...approval, signatureBytes: Buffer.alloc(64) } },
+    { initialManifestSigningApproval: { ...approval, approvalBytes: Buffer.concat([approvalBytes, Buffer.from(" ")]) } },
+  ];
+  for (const change of changed) {
+    assert.throws(() => assertInitialManifestSigningApproval({ ...registered, ...change }, authority), /approval/u);
+  }
+  assert.throws(() => assertInitialManifestSigningApproval(registered, {
+    ...authority, sourceSha: "b".repeat(40),
+  }), /approval/u);
+
+  const pin = FIRST_TESTPLAY_MANIFEST_APPROVAL_AUTHORITY;
+  const forged = {
+    ...registered,
+    policy: { ...options.policy, manifest_url: pin.manifestUrl },
+    prepared: {
+      ...prepared, payload: { ...prepared.payload, source: { ...prepared.payload.source, worker_git_commit_sha: pin.sourceSha } },
+    },
+    workerReferenceRevalidation: {
+      get environment() { assert.fail("self-signed approval reached Cloudflare readback"); },
+    },
+  };
+  const forgedBytes = manifestSigningApprovalBytes({ ...forged, authority: pin });
+  forged.initialManifestSigningApproval = {
+    approvalBytes: forgedBytes,
+    signatureBytes: sign(null, manifestSigningApprovalMessage(forgedBytes), approvalKey.privateKey),
+  };
+  await assert.rejects(prepareTlsnRuntimeConfigReleaseUpdate(forged), /approval signature or authority is invalid/u);
+
+  const predecessor = { epoch: "1", digest: createHash("sha256").update(signedRaw(prepared)).digest("base64url") };
+  const successor = preparedOptions(referenceRaw(), release, "2");
+  const successorOptions = {
+    ...options,
+    prepared: successor,
+    policy: policy(successor, { last_accepted_epoch: predecessor.epoch, last_accepted_manifest_sha256: predecessor.digest }),
+    manifestAuthorityDelegationRaw: manifestDelegation(successor).raw,
+  };
+  const successorBytes = manifestSigningApprovalBytes({ ...successorOptions, authority, predecessor });
+  const signedSuccessor = {
+    ...successorOptions,
+    successorManifestSigningApproval: {
+      approvalBytes: successorBytes,
+      signatureBytes: sign(null, manifestSigningApprovalMessage(successorBytes, true), approvalKey.privateKey),
+    },
+  };
+  assert.doesNotThrow(() => assertSuccessorManifestSigningApproval(signedSuccessor, authority));
+  assert.throws(() => assertSuccessorManifestSigningApproval({
+    ...signedSuccessor,
+    policy: {
+      ...signedSuccessor.policy,
+      last_accepted_manifest_sha256: createHash("sha256").update("different Manifest").digest("base64url"),
+    },
+  }, authority), /approval.*predecessor/u);
+  assert.throws(() => assertSuccessorManifestSigningApproval({
+    ...signedSuccessor, successorManifestSigningApproval: approval,
+  }, authority), /approval signature/u);
+});
+
+test("operator Worker reference is re-observed before preparing a delegated Manifest", async () => {
+  const digest = (bytes) => createHash("sha256").update(bytes).digest("base64url");
+  const publicManifestRaw = Buffer.from(JSON.stringify(manifest));
+  const active = activeDeployment(controls(release).deployment);
+  const operatorDeploymentRaw = Buffer.from(JSON.stringify({
+    schema_version: 1,
+    scope: "fusou-tlsn-operator-wrangler-deployment",
+    git_commit_sha: environment.TLSN_GIT_COMMIT_SHA,
+    repository: environment.TLSN_REPOSITORY,
+    candidate_ci: {
+      workflow_path: ".github/workflows/tlsn-testplay-candidate.yml", run_id: "147",
+      run_attempt: "1", head_sha: environment.TLSN_GIT_COMMIT_SHA, conclusion: "success",
+    },
+    cloudflare: {
+      account_id: account, script_name: environment.TLSN_PRODUCTION_WORKER_NAME,
+      deployment_id: active.deployment_id, version_id: active.version_id,
+      logical_deployment_id: environment.TLSN_PRODUCTION_DEPLOYMENT_ID,
+    },
+    verifier_key_id: provenance.security_identity.verifier_key_id,
+    wasm_sha256: digest("fixture wasm bytes"),
+    public_manifest_sha256: digest(publicManifestRaw),
+  }));
+  const env = { ...environment, TLSN_OPERATOR_DEPLOYMENT_APPROVED_SHA256: digest(operatorDeploymentRaw) };
+  const operatorInputs = { operatorDeploymentRaw, publicManifestRaw };
+  const operatorRelease = approvedProductionRelease(env, undefined, manifest, operatorInputs);
+  const independentInputs = currentIndependentInputs(referenceRaw(operatorRelease));
+  const prepared = preparedOptions(independentInputs.worker_reference_raw, operatorRelease, "2");
+  const options = {
+    prepared, signerProvider: testSignerProvider(), trustedSigner, policy: policy(prepared),
+    manifestAuthorityDelegationRaw: manifestDelegation(prepared).raw, independentInputs,
+    workerReferenceRevalidation: {
+      environment: env, publicManifest: manifest, ...operatorInputs,
+      fetchImpl: async (url) => new Response(JSON.stringify(controlPlaneResponse(url, operatorRelease))),
+    },
+  };
+
+  const update = await prepareTlsnRuntimeConfigReleaseUpdateForTest(options);
+  assert.equal(update.state, "READY_FOR_COORDINATOR_ADMISSION");
+  const verified = verifyTlsnRuntimeConfigProductionEnvelope(update.manifest_bytes, {
+    trustedSigner, policy: policy(prepared), independentInputs,
+  });
+  assert.equal(verified.matched_inputs.worker_reference_sha256, digest(independentInputs.worker_reference_raw));
+  assert.equal(verified.payload.source.active_version_id, active.version_id);
+  await assert.rejects(prepareTlsnRuntimeConfigReleaseUpdateForTest({
+    ...options,
+    workerReferenceRevalidation: {
+      ...options.workerReferenceRevalidation,
+      fetchImpl: async (url) => new Response(JSON.stringify(controlPlaneResponse(url, operatorRelease, version2))),
+    },
+  }), /approved operator deployment: version_id/u);
 });
 
 test("Release update preparation rejects stale Worker reference before signing and keeps Production gated", async () => {

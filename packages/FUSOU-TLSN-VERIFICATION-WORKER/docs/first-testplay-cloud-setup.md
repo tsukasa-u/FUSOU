@@ -1,13 +1,13 @@
 # 初回TLSNテストプレイのクラウド設定
 
-初回Complete captureに向け、専用クラウド環境から同一LinuxホストのAPPとNotaryまでを設定する手順です。2026-11-26時点の配備と未確認事項は[readinessの最新記録](../../FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md)にあります。
+初回Complete captureに向け、専用クラウド環境から同一LinuxホストのAPPとNotaryまでを設定する手順です。配備済みの構成と未確認事項は[readinessの最新記録](../../FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md)にあります。
 
 ## 既存リソースと接続先
 
 | 用途 | 名前・接続先 | 設定方針 |
 | --- | --- | --- |
 | WEB・端末proof | `fusou-tlsn-testplay-web`、`https://tlsn-web.fusou.dev` | 専用Supabaseへの既存配備を使う。 |
-| 検証 | `fusou-tlsn-verification-production` | [専用設定例](../wrangler.first-testplay.example.toml)から準備。専用HTTPSホストは承認対象。 |
+| 検証 | `fusou-tlsn-verification-production`、`https://tlsn-verify.fusou.dev` | 選択済みWorkerのCustom Domain。今後の配備では[専用設定例](../wrangler.first-testplay.example.toml)を使い、既存の対応と稼働版を照合する。 |
 | 非同期検証 | Queue `fusou-tlsn-verification-production` | 同じ検証Workerをproducerとconsumerに設定。 |
 | 検証アーカイブ | R2 `fusou-tlsn-verification-production` | 検証Workerの `TLSN_PRESENTATIONS`。バケットは非公開。 |
 | 設定配信 | `fusou-tlsn-runtime-config-freshness-gateway` | 配備済み。公開する場合も専用HTTPSホストに限定。 |
@@ -57,7 +57,18 @@ WRANGLER_LOG_PATH="$setup_dir/wrangler.log" WRANGLER_SEND_METRICS=false \
 
 本配備用には、[候補ワークフロー](../../../.github/workflows/tlsn-testplay-candidate.yml)と同じ固定ツールでWASMを生成します。`FUSOU_RELEASE_SOURCE_SHA` に承認済みSHAを渡し、対象ソースと一致することを確認してから `build:wasm`、`verify:wasm-provenance`、型検査、契約テストを通します。承認済み設定で再度dry-runしてから、専用Workerだけを配備します。公開先を付ける場合はそのWorkerの `routes` に承認済み1ホストの `custom_domain = true` を指定し、`workers_dev = false`、`preview_urls = false` を維持します。CloudflareはCustom DomainにDNSとTLS証明書を割り当てます。[CloudflareのCustom Domains設定](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
 
-`wrangler deployments list` と `wrangler versions view` で単一のバージョンが100%稼働し、想定のDO・R2・Queueだけに接続することを確認します。`/health` でProductionロール、random binding、trust contract有効、発行予定の公開情報との一致を確認します。[Worker reference取得スクリプト](../scripts/capture-app-worker-reference.mjs)には独立に承認した公開マニフェスト、provenance、既定の環境入力と読み取り専用Cloudflare権限を渡します。生成したreferenceのexact bytesとdigestを初回Manifestの入力にします。
+`wrangler deployments list` と `wrangler versions view` で単一のバージョンが100%稼働し、想定のDO・R2・Queueだけに接続することを確認します。`/health` でProductionロール、random binding、trust contract有効、発行予定の公開情報との一致を確認します。
+
+### 配備ワークフローとWranglerの証跡
+
+[Worker reference取得スクリプト](../scripts/capture-app-worker-reference.mjs)には独立に承認した公開マニフェスト、配備証跡、既定の環境入力とCloudflare管理APIの読み取り権限を渡します。配備証跡は配備方法に応じて片方を指定します。
+
+- 配備ワークフローで実行した場合は、従来どおり `TLSN_PROVENANCE_REPORT_PATH` にそのワークフローのprovenanceファイルを指定します。
+- Wranglerで配備した場合は、`TLSN_OPERATOR_DEPLOYMENT_RECORD_PATH` に [operator-wrangler-v1の記録](../scripts/app-worker-operator-context.mjs)を、`TLSN_OPERATOR_DEPLOYMENT_APPROVED_SHA256` に同じ運用者が別途固定した記録のexact-byte SHA-256をunpadded base64urlで指定します。記録には選択済みGit SHA・repository、同一SHAで成功した候補CIのrun ID・attempt・workflow path、Cloudflare account・Worker名・実deployment ID・active version ID・論理deployment ID、Verifier鍵ID、ビルド時のWASM digest、承認済み公開マニフェストのexact-byte digestを入れます。候補CIのrunはソースの検証結果として記録し、Wranglerの配備はCloudflareの配備記録で照合します。WASM digestは配備時に使ったビルド出力の記録です。
+
+両経路とも `TLSN_PUBLIC_MANIFEST_PATH` に公開マニフェスト、`TLSN_APP_WORKER_REFERENCE_PATH` に新規の出力先を指定します。取得時にCloudflare側の有効バージョン・公開binding・専用ドメインとWorkerの対応を検査します。一致した場合に生成したreferenceのexact bytesとdigestを初回Manifestの入力にします。Manifest更新を準備するときも、署名前に同じ配備証跡でCloudflareの現行設定を再照合します。
+
+専用ドメインを既存の稼働版に追加するときは、対象名のDNSレコードとCustom Domainの有無、Worker Routesの競合を管理APIで確認します。割り当て後は公開HTTPSの証明書、`/health` の選択SHAと版ID、Session・検証APIの認証なし拒否も照合します。既存の参照ファイルを使う場合も、Manifest発行時には新しい観測で期限条件を満たします。
 
 ## 3. Runtime ConfigとFreshnessを初期化する
 
@@ -65,6 +76,10 @@ WRANGLER_LOG_PATH="$setup_dir/wrangler.log" WRANGLER_SEND_METRICS=false \
 2. Manifest V3にWorker reference、Origin Inventory、Target Approval、Security Registry Set、Result Registry envelopeの5種類をexact-byte digestで結び付けます。承認された発行経路でManifestと初回Release Recordを生成し、別経路の公開ピンで検証します。最初のReleaseは既存状態からの更新と区別し、[Genesis契約](../../FUSOU-TLSN-VERIFIER/docs/runtime-config-freshness-contract-revision-proposal.md#74-one-time-fixed-approval-cloudflareoperator-genesis--local-implementation)に沿って、承認済みのR2アーティファクト、Manifest snapshotとpointerを整え、Recordのpointer ETagとexact bytesを読み戻します。
 3. 固定承認 `FRESHNESS_GENESIS_APPROVAL_JSON` は対象DO・chain・restore epoch・承認された資料のdigestを固定します。承認済みの管理経路から非公開Signerの `POST /__private/admin/genesis` を呼びます。`x-fusou-genesis-capability` は管理Secretsから取得します。要求JSONの3フィールドは `manifest_bytes_base64url`、`record_bytes_base64url`、`release_delegation_bytes_base64url` です。成功はledger確定・R2 readback・`AVAILABLE`・current-state installまで確認します。応答を失った場合は同じoperationの照会または同じbytesによる回復を使います。別operationの作成やR2の手動上書きで未確定状態を解消しません。
 4. [Gatewayの設定例](../../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY/wrangler.private-signer.example.toml)に同じManifest URLを入れ、`TLSN_FRESHNESS_SIGNER` を配備済みSignerに設定します。承認済みCustom DomainはGatewayに割り当てます。HTTPSからManifestとdigest指定の参照資料を取得し、署名・サイズ・exact bytesと、`POST /tlsn/runtime-config/v2/freshness/v1` の署名付き応答を検証します。
+
+初回専用のManifest署名準備では、[独立承認用公開鍵](../scripts/tlsn-runtime-config-production-registration.mjs)を署名ツールに固定します。承認鍵はAPPのBootstrap rootとManifest子鍵から分けて保管します。署名前に、固定した選択SHAとURL、Bootstrap公開鍵、Manifest委任のexact-byte digest、承認対象設定のdigestを含む承認記録と、そのEd25519署名を照合します。承認用の公開値は署名を依頼する側から受け取りません。
+
+署名準備の入口は `prepareTlsnRuntimeConfigReleaseUpdate` です。初回分はepoch 1とし、通常の入力に `initialManifestSigningApproval` として `approvalBytes` と `signatureBytes` を渡します。Workerの現行バージョンと専用ルートを再取得し、更新したWorker reference・5資料・有効なManifest委任を使います。この入口が返した資料を初回登録用に確認します。R2への公開やDO初期化は別手順です。
 
 初回登録の運用入口は [genesis-operator.mjs](../../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/genesis-operator.mjs) です。リポジトリ固定版のWranglerから既存Signerへ非公開Service Bindingで接続します。R2への資料の配置とexact readbackは上記の承認済み手順で先に行います。CLI自体は署名やR2書き込みを行いません。
 
@@ -79,6 +94,22 @@ node --experimental-strip-types "$genesis_cli" apply "$GENESIS_DIR" "$GENESIS_AP
 ```
 
 `prepare` はオフラインで承認ファイルと3資料のdigestを照合し、確定前から同じoperation IDを表示します。署名とR2・Coordinatorの実状態はSigner側が検証します。`status` は承認ファイルだけで同じIDを読み取り専用照会できます。`apply` は同じbytesを1回送信します。`INSTALLED` は `AVAILABLE` とinstall確定を伴う場合にのみ成功扱いです。`RESULT_UNKNOWN` や接続切断などの `RESULT_UNCONFIRMED` では、まず同じ資料の `status` を使います。`NOT_FOUND` だけで未実行を確定したり、自動で再POSTしたりしません。
+
+`status` のシェル終了コードは `INSTALLED` 以外で1です。初回の `NOT_FOUND` は終了コードとJSONを合わせて読み、操作ID・R2の内容・固定承認を照合したうえで初回の `apply` に進みます。
+
+Gatewayは公開前に、非公開Service BindingでManifest・snapshot・5資料と署名付きFreshnessを確認します。初回環境ではGenesisが `INSTALLED` になり、7件のGETが成功しました。Freshnessは署名権の確保後に `RESULT_UNKNOWN` となり、台帳に発行停止状態が保持されています。専用ドメインの割り当てはこの状態を解決し、非公開経路で署名付き応答を再検証してから行います。[実環境の確認記録](../../FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md#initial-runtime-config-installed-privately-freshness-blocked--2026-11-27)
+
+### 未確定のFreshnessを復旧する
+
+まず台帳を読み取り専用で照会します。確定済み応答があれば、同一操作の保存済みバイト列を通常経路で照合します。応答本体・長さ・digestがすべて欠けている場合は、署名の有無を判定できません。
+
+隔離環境で検証した `retireCloudflareOperatorUnknownIssue` は、専用の回復承認鍵で署名した承認を使います。Coordinator ID、chain、restore epoch、操作ID、リクエストdigest、旧fence、設置済み状態のdigestを照合し、承認・旧操作の拒否・fence更新を一括で記録します。元のnonceは使用済みのままです。同じ承認を再送すると既存の記録を返します。
+
+復旧後の旧Releaseでは新規Freshness発行が停止したままです。現行Worker情報を取り直し、署名済みの後続Releaseを登録してから、新しいnonceでFreshnessを検証します。実環境での実行には、復旧コードを含む選択SHAの検証、専用承認鍵の公開ピン、非公開管理経路が必要です。[現在の検証記録](../../FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md#signed-retirement-of-an-unconfirmed-freshness-issue--2026-11-27)
+
+非公開Signerの `POST /__private/admin/issue-retirement` は、正規JSONの `approval_base64url` と `signature_base64url` を受け取ります。管理capabilityは `x-fusou-issue-recovery-capability` に渡します。結果が不明な場合は、同じcapabilityで `GET /__private/admin/issue-retirement/<operation-id>/<approval-sha256>` を使って記録を読みます。復旧鍵のIDとSPKIは `FRESHNESS_ISSUE_RECOVERY_KEY_ID` と `FRESHNESS_ISSUE_RECOVERY_PUBLIC_KEY_SPKI` に固定し、capabilityはSignerの専用Secretに登録します。
+
+後続Manifestの用意には `prepareTlsnRuntimeConfigReleaseUpdate` の `successorManifestSigningApproval` を使います。承認署名は初回と別の署名ドメインで、旧Manifest digest・旧epoch・連続する新epochを固定します。署名前にWorkerの現行版とルートを再照合します。確認済みのManifestと5資料を非公開のRelease更新へ渡し、先に採番したoperation IDを使って `INSTALLED` を照会します。
 
 ## 4. 同一LinuxホストでAPPとNotaryを確認する
 

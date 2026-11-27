@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { FORBIDDEN_PRODUCTION_INPUTS } from "./deployment-contract.mjs";
 import { assertWorkerEndpointMapping, observeWorkerEndpointMapping } from "./app-worker-endpoint-mapping.mjs";
+import { assertAppWorkerReleaseContext, operatorWranglerRelease } from "./app-worker-operator-context.mjs";
 import {
   assertProvenanceEvidence,
   workflowContextFromEnvironment,
@@ -10,6 +11,7 @@ import {
 import {
   assertPublicManifest,
   assertResultSigningIdentity,
+  canonicalJson,
 } from "./production-trust-contract.mjs";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -47,16 +49,28 @@ export function activeDeployment(payload) {
   };
 }
 
-export function approvedProductionRelease(environment, provenance, publicManifest) {
+export function approvedProductionRelease(environment, provenance, publicManifest, {
+  operatorDeploymentRaw, publicManifestRaw,
+} = {}) {
   if (environment.TLSN_DEPLOYMENT_ROLE !== "production") {
     throw new Error("Production APP handoff cannot use a Canary release identity");
   }
   if (environment.TLSN_ENVIRONMENT !== "production") {
     throw new Error("Production approved release requires the production environment");
   }
-  const context = workflowContextFromEnvironment(environment, "production");
-  assertProvenanceEvidence(provenance, context, "production");
   assertPublicManifest(publicManifest);
+  const operator = operatorDeploymentRaw !== undefined ||
+    environment.TLSN_OPERATOR_DEPLOYMENT_APPROVED_SHA256 !== undefined;
+  if (operator && provenance != null) throw new Error("choose one Production deployment provenance source");
+  const operatorRelease = operator ? operatorWranglerRelease(environment, operatorDeploymentRaw, publicManifestRaw) : null;
+  const context = operatorRelease?.context ?? workflowContextFromEnvironment(environment, "production");
+  if (operator) {
+    // Compare the original independently pinned file with the object used below.
+    if (canonicalJson(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(publicManifestRaw)))) !==
+        canonicalJson(publicManifest)) throw new Error("approved operator public manifest bytes do not match the manifest object");
+  } else {
+    assertProvenanceEvidence(provenance, context, "production");
+  }
   for (const [field, expected] of [
     ["notary_key_id", publicManifest.notary.key_id],
     ["notary_registry_sha256", publicManifest.notary.registry_sha256],
@@ -64,15 +78,15 @@ export function approvedProductionRelease(environment, provenance, publicManifes
     ["origin_inventory_sha256", publicManifest.origin_inventory.sha256],
     ["target_approval_artifact_sha256", publicManifest.target_approval.approval_artifact_sha256],
   ]) {
-    if (provenance.security_identity[field] !== expected) {
+    if (!operator && provenance.security_identity[field] !== expected) {
       throw new Error(`approved public manifest disagrees with provenance: ${field}`);
     }
   }
   const workerName = required(environment, "TLSN_PRODUCTION_WORKER_NAME");
   const deploymentId = required(environment, "TLSN_PRODUCTION_DEPLOYMENT_ID");
-  if (!/^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(workerName) ||
+  if (!/^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(workerName) || (!operator && (
       provenance.deployment_identity.worker_name !== workerName ||
-      provenance.deployment_identity.deployment_id !== deploymentId) {
+      provenance.deployment_identity.deployment_id !== deploymentId))) {
     throw new Error("approved release deployment pins disagree with provenance");
   }
   const workerUrl = new URL(required(environment, "TLSN_VERIFY_WORKER_URL"));
@@ -106,7 +120,7 @@ export function approvedProductionRelease(environment, provenance, publicManifes
     ["result_registry_root_key_id", "result_registry_root_key_id"],
     ["result_registry_root_public_key_spki", "result_registry_root_public_key_spki"],
   ]) {
-    if (provenance.result_identity[field] !== result[resultField] ||
+    if ((!operator && provenance.result_identity[field] !== result[resultField]) ||
         publicManifest.result_signing[resultField] !== result[resultField]) {
       throw new Error(`independent Result authority disagrees with approved release: ${field}`);
     }
@@ -128,7 +142,7 @@ export function approvedProductionRelease(environment, provenance, publicManifes
     TLSN_CANDIDATE_NOTARY_KEY_ID: publicManifest.notary.key_id,
     TLSN_PRODUCTION_NOTARY_ID: publicManifest.notary.notary_id,
     TLSN_PRODUCTION_NOTARY_REGISTRY: publicManifest.notary.registry_raw,
-    TLSN_CANDIDATE_VERIFIER_KEY_ID: provenance.security_identity.verifier_key_id,
+    TLSN_CANDIDATE_VERIFIER_KEY_ID: operatorRelease?.verifierKeyId ?? provenance.security_identity.verifier_key_id,
     TLSN_SECURITY_REGISTRY_SET_SHA256: publicManifest.security_registry_set_sha256,
   };
   return {
@@ -188,6 +202,9 @@ export function createAppWorkerReference(release, deploymentPayload, versionPayl
     throw new Error("active Cloudflare version lacks CF_VERSION_METADATA");
   }
   const script = release.compile_inputs.FUSOU_TLSN_EXPECTED_WORKER_NAME;
+  assertAppWorkerReleaseContext(release.context, {
+    ...active, account_id: accountId, script_name: script,
+  }, release.compile_inputs.FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID);
   const source = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${script}`;
   assertWorkerEndpointMapping(endpointMapping, new URL(release.compile_inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT).origin, accountId, script);
   return {
@@ -195,7 +212,7 @@ export function createAppWorkerReference(release, deploymentPayload, versionPayl
     scope: "tlsn-app-approved-worker-deployment-reference",
     authority: "operator-controlled-approved-release-and-authenticated-cloudflare-control-plane",
     observed_at: observedAt,
-    release_context: { ...release.context },
+    release_context: structuredClone(release.context),
     disclosure_mode: release.disclosureMode,
     endpoint_mapping: structuredClone(endpointMapping),
     cloudflare: {
@@ -212,9 +229,11 @@ export function createAppWorkerReference(release, deploymentPayload, versionPayl
   };
 }
 
-export async function acquireAppWorkerReference({ environment, provenance, publicManifest, fetchImpl = fetch }) {
+export async function acquireAppWorkerReference({
+  environment, provenance, publicManifest, operatorDeploymentRaw, publicManifestRaw, fetchImpl = fetch,
+}) {
   // Build the approved release before making any observation; health is never an input.
-  const release = approvedProductionRelease(environment, provenance, publicManifest);
+  const release = approvedProductionRelease(environment, provenance, publicManifest, { operatorDeploymentRaw, publicManifestRaw });
   const accountId = required(environment, "CLOUDFLARE_ACCOUNT_ID");
   if (!/^[0-9a-f]{32}$/.test(accountId)) throw new Error("Cloudflare account ID is invalid");
   const token = required(environment, "CLOUDFLARE_API_TOKEN");
@@ -260,17 +279,27 @@ export async function acquireAppWorkerReference({ environment, provenance, publi
 
 export async function writeAppWorkerReference(environment) {
   const outputPath = resolve(required(environment, "TLSN_APP_WORKER_REFERENCE_PATH"));
-  async function publicJson(name) {
-    const bytes = await readFile(required(environment, name), "utf8");
+  function publicJson(bytes, name) {
     try {
-      return JSON.parse(bytes);
+      return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
     } catch {
       throw new Error(`independent public reference is malformed JSON: ${name}`);
     }
   }
-  const provenance = await publicJson("TLSN_PROVENANCE_REPORT_PATH");
-  const publicManifest = await publicJson("TLSN_PUBLIC_MANIFEST_PATH");
-  const reference = await acquireAppWorkerReference({ environment, provenance, publicManifest });
+  const operatorPath = environment.TLSN_OPERATOR_DEPLOYMENT_RECORD_PATH;
+  if (operatorPath !== undefined && environment.TLSN_PROVENANCE_REPORT_PATH !== undefined) {
+    throw new Error("choose one Production deployment provenance source");
+  }
+  const publicManifestRaw = await readFile(required(environment, "TLSN_PUBLIC_MANIFEST_PATH"));
+  const publicManifest = publicJson(publicManifestRaw, "TLSN_PUBLIC_MANIFEST_PATH");
+  const operatorDeploymentRaw = operatorPath === undefined ? undefined :
+    await readFile(required(environment, "TLSN_OPERATOR_DEPLOYMENT_RECORD_PATH"));
+  const provenance = operatorPath === undefined ? publicJson(
+    await readFile(required(environment, "TLSN_PROVENANCE_REPORT_PATH")), "TLSN_PROVENANCE_REPORT_PATH",
+  ) : undefined;
+  const reference = await acquireAppWorkerReference({
+    environment, provenance, publicManifest, operatorDeploymentRaw, publicManifestRaw,
+  });
   await writeFile(outputPath, `${JSON.stringify(reference, null, 2)}\n`, { flag: "wx", mode: 0o600 });
   console.log(`[tlsn-app-worker-reference] wrote independent reference ${outputPath} (sha256 ${sha256(await readFile(outputPath))})`);
   return reference;

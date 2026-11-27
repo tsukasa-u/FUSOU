@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
+import { assertBuildReference } from "./app-build-handoff.mjs";
 import {
   acquireAppWorkerReference,
   activeDeployment,
@@ -16,6 +18,86 @@ import {
 function createAppWorkerReference(release, ...args) {
   return createReference(release, ...args, customMapping(release));
 }
+
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("base64url");
+
+function operatorInput(change = () => {}) {
+  const publicManifestRaw = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  const deployment = {
+    schema_version: 1,
+    scope: "fusou-tlsn-operator-wrangler-deployment",
+    git_commit_sha: environment.TLSN_GIT_COMMIT_SHA,
+    repository: environment.TLSN_REPOSITORY,
+    candidate_ci: {
+      workflow_path: ".github/workflows/tlsn-testplay-candidate.yml",
+      run_id: "147", run_attempt: "1", head_sha: environment.TLSN_GIT_COMMIT_SHA, conclusion: "success",
+    },
+    cloudflare: {
+      account_id: account,
+      script_name: environment.TLSN_PRODUCTION_WORKER_NAME,
+      deployment_id: activeDeployment(controls(release).deployment).deployment_id,
+      version_id: version1,
+      logical_deployment_id: environment.TLSN_PRODUCTION_DEPLOYMENT_ID,
+    },
+    verifier_key_id: provenance.security_identity.verifier_key_id,
+    wasm_sha256: sha256("fixture wasm bytes"),
+    public_manifest_sha256: sha256(publicManifestRaw),
+  };
+  change(deployment);
+  const operatorDeploymentRaw = Buffer.from(`${JSON.stringify(deployment, null, 2)}\n`);
+  return {
+    env: { ...environment, TLSN_OPERATOR_DEPLOYMENT_APPROVED_SHA256: sha256(operatorDeploymentRaw) },
+    options: { operatorDeploymentRaw, publicManifestRaw },
+  };
+}
+
+test("operator Wrangler release separates candidate CI from the approved active deployment", async () => {
+  const { env, options } = operatorInput();
+  const operatorRelease = approvedProductionRelease(env, undefined, manifest, options);
+  const record = await acquireAppWorkerReference({
+    environment: env, publicManifest: manifest, ...options,
+    fetchImpl: async (url) => new Response(JSON.stringify(controlPlaneResponse(url, operatorRelease))),
+  });
+  assert.equal(record.release_context.deployment_method, "operator-wrangler-v1");
+  assert.equal(record.release_context.candidate_ci.run_id, "147");
+  assert.equal(record.release_context.approved_deployment.version_id, version1);
+  assert.equal(record.release_context.operator_record_sha256, env.TLSN_OPERATOR_DEPLOYMENT_APPROVED_SHA256);
+  assert.ok(!Object.hasOwn(record.release_context, "workflow_file_identity"));
+  assert.equal(record.cloudflare.version_id, version1);
+  assertBuildReference(record, env.TLSN_GIT_COMMIT_SHA);
+  record.release_context.approved_deployment.version_id = version2;
+  assert.throws(() => assertBuildReference(record, env.TLSN_GIT_COMMIT_SHA), /approved operator deployment: version_id/u);
+  await assert.rejects(acquireAppWorkerReference({
+    environment: env, publicManifest: manifest, ...options,
+    fetchImpl: async (url) => new Response(JSON.stringify(controlPlaneResponse(url, operatorRelease, version2))),
+  }), /approved operator deployment: version_id/u);
+});
+
+test("operator Wrangler path rejects unapproved records, remixed manifests and failed or different CI", () => {
+  const { env, options } = operatorInput();
+  assert.throws(() => approvedProductionRelease(env, provenance, manifest, options), /choose one/u);
+  assert.throws(() => approvedProductionRelease({ ...environment }, undefined, manifest, options), /independent approval/u);
+  assert.throws(() => approvedProductionRelease(env, undefined, manifest, {
+    ...options, operatorDeploymentRaw: Buffer.concat([options.operatorDeploymentRaw, Buffer.from(" ")]),
+  }), /independent approval/u);
+  assert.throws(() => approvedProductionRelease(env, undefined, manifest, {
+    ...options, publicManifestRaw: Buffer.concat([options.publicManifestRaw, Buffer.from(" ")]),
+  }), /public manifest/u);
+  const substituted = { ...manifest, verification_endpoint: "https://replacement.example.com/verify/tlsn" };
+  assert.throws(() => approvedProductionRelease(env, undefined, substituted, options), /do not match the manifest object/u);
+  for (const change of [
+    (record) => { record.candidate_ci.head_sha = "b".repeat(40); },
+    (record) => { record.candidate_ci.conclusion = "failure"; },
+    (record) => { record.candidate_ci.workflow_path = ".github/workflows/unrelated.yml"; },
+    (record) => { record.cloudflare.account_id = "b".repeat(32); },
+    (record) => { record.cloudflare.script_name = "different-worker"; },
+    (record) => { record.cloudflare.logical_deployment_id = "different-deployment"; },
+    (record) => { record.cloudflare.version_id = "00000000-0000-0000-0000-000000000000"; },
+  ]) {
+    const input = operatorInput(change);
+    assert.throws(() => approvedProductionRelease(input.env, undefined, manifest, input.options), /candidate CI|selected release/u);
+  }
+});
 
 test("current single 100% active deployment supplies a distinct public APP version pin", () => {
   const input = controls(release);

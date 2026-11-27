@@ -17,7 +17,12 @@ import {
   RuntimeConfigPointerIntegrityError,
 } from "./tlsn-runtime-config-r2-store.mjs";
 import { verifyTlsnRuntimeConfigIndependentInputs } from "./tlsn-runtime-config-independent-verification.mjs";
-import { assertRuntimeConfigProductionSigningRegistered } from "./tlsn-runtime-config-production-registration.mjs";
+import {
+  assertInitialManifestSigningApproval,
+  assertRuntimeConfigProductionSigningRegistered,
+  assertSuccessorManifestSigningApproval,
+  FIRST_TESTPLAY_MANIFEST_APPROVAL_AUTHORITY,
+} from "./tlsn-runtime-config-production-registration.mjs";
 import { isTestOnlyRuntimeConfigObjectStore } from "./tlsn-runtime-config-test-only-store.mjs";
 
 function assertSignerProvider(signerProvider, delegation, expectedMode) {
@@ -231,7 +236,7 @@ async function verifyFreshApprovedWorkerReference(
     !workerReferenceRevalidation ||
     typeof workerReferenceRevalidation !== "object" ||
     !workerReferenceRevalidation.environment ||
-    !workerReferenceRevalidation.provenance ||
+    (!workerReferenceRevalidation.provenance && !workerReferenceRevalidation.operatorDeploymentRaw) ||
     !workerReferenceRevalidation.publicManifest
   ) {
     throw new Error("fresh approved Worker release inputs are required before Manifest admission");
@@ -304,6 +309,26 @@ async function prepareTlsnRuntimeConfigReleaseUpdateWithMode(
 }
 
 export async function prepareTlsnRuntimeConfigReleaseUpdate(options) {
+  const initial = options?.initialManifestSigningApproval !== undefined;
+  const successor = options?.successorManifestSigningApproval !== undefined;
+  if (initial && successor) throw new Error("Choose one Manifest approval");
+  if (initial || successor) {
+    const assertApproval = initial
+      ? assertInitialManifestSigningApproval
+      : assertSuccessorManifestSigningApproval;
+    assertApproval(options, FIRST_TESTPLAY_MANIFEST_APPROVAL_AUTHORITY);
+    return prepareTlsnRuntimeConfigReleaseUpdateWithMode(
+      options,
+      (manifestOptions) => {
+        assertApproval({
+          ...manifestOptions,
+          initialManifestSigningApproval: options.initialManifestSigningApproval,
+          successorManifestSigningApproval: options.successorManifestSigningApproval,
+        }, FIRST_TESTPLAY_MANIFEST_APPROVAL_AUTHORITY);
+        return signTlsnRuntimeConfigManifestWithMode(manifestOptions, "production");
+      },
+    );
+  }
   assertRuntimeConfigProductionSigningRegistered();
   return prepareTlsnRuntimeConfigReleaseUpdateWithMode(
     options,
