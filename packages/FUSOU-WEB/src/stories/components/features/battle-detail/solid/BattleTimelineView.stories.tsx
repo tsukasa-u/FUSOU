@@ -31,3 +31,10 @@ export const NightBattle = {
     showPhaseSeparators: true,
   },
 };
+
+export const AllPhases = {
+  args: {
+    ...createStorybookBattleViewArgs("all-phases"),
+    showPhaseSeparators: true,
+  },
+};

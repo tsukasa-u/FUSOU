@@ -6,7 +6,6 @@ import type {
   MstShipRecord,
   MstSlotItemRecord,
   TimelineEvent,
-  TimelineStep,
 } from "@/features/battles/types";
 import {
   FRIEND_COLORS,
@@ -17,348 +16,559 @@ import {
   buildTimelineEvents,
   buildInitialHps,
 } from "@/features/battles/timeline";
-import { shipNameFromIndex, EquipmentBadgesFromSlotIds } from "./ui";
+import { shipNameFromIndex, slotItemMeta, WeaponIcon } from "./ui";
 
-// ── Layout constants (mirrored from timeline.ts) ──────────────────────────
+// ── Layout & visual constants ─────────────────────────────────────────────
 
-const ROW_H = 28;
-const CHART_W = 420;
+const LINE_H = 20;
+const BASE_ROW_H = 26;
+const CHART_W = 400;
+const BRIDGE_W = 28;
 const PAD_L = 10;
 const PAD_R = 10;
 const PAD_TOP = 26;
-const PAD_BOT = 8;
+const PAD_BOT = 10;
 const INNER_W = CHART_W - PAD_L - PAD_R;
-const EXTEND = ROW_H / 2;
+
+/** Constant dy/dx slope for ALL diagonal HP transitions (never clamped). */
+const DIAG_SLOPE = 0.085;
+/** Minimum vertical clearance (px) between consecutive diagonal segments. */
+const MIN_DIAG_GAP = 14;
+
+/** Distinct color palettes for combined-fleet 2nd / escort fleets. */
+const F2_COLORS = [
+  "#10b981",
+  "#14b8a6",
+  "#22c55e",
+  "#06b6d4",
+  "#34d399",
+  "#2dd4bf",
+];
+const E2_COLORS = [
+  "#ec4899",
+  "#eab308",
+  "#a855f7",
+  "#f472b6",
+  "#facc15",
+  "#c084fc",
+];
 
 function xHP(pct: number): number {
   return PAD_L + (pct / 100) * INNER_W;
 }
 
-function yStep(si: number): number {
-  return PAD_TOP + si * ROW_H + ROW_H / 2;
+function calcDiagDy(xFrom: number, xTo: number): number {
+  return Math.abs(xTo - xFrom) * DIAG_SLOPE;
 }
 
-// ── Pure computation helpers ──────────────────────────────────────────────
+function shipPosLabel(
+  side: "friend" | "enemy",
+  idx: number,
+  isCombined: boolean,
+): string {
+  if (side === "friend") {
+    if (!isCombined) return `F${idx + 1}`;
+    return idx < 6 ? `1-${idx + 1}` : `2-${idx - 5}`;
+  }
+  if (!isCombined) return `E${idx + 1}`;
+  return idx < 6 ? `主${idx + 1}` : `随${idx - 5}`;
+}
 
-function buildSteps(
-  events: TimelineEvent[],
+function shipLineStyle(
+  side: "friend" | "enemy",
+  idx: number,
+): { color: string; dash: string | undefined } {
+  if (side === "friend") {
+    if (idx < 6) {
+      return {
+        color: FRIEND_COLORS[idx % FRIEND_COLORS.length] ?? "#3b82f6",
+        dash: undefined,
+      };
+    }
+    return {
+      color: F2_COLORS[(idx - 6) % F2_COLORS.length] ?? "#10b981",
+      dash: "3,2",
+    };
+  }
+  if (idx < 6) {
+    return {
+      color: ENEMY_COLORS[idx % ENEMY_COLORS.length] ?? "#ef4444",
+      dash: "6,2",
+    };
+  }
+  return {
+    color: E2_COLORS[(idx - 6) % E2_COLORS.length] ?? "#ec4899",
+    dash: "2,2",
+  };
+}
+
+function isNightPhase(phase: string): boolean {
+  return (
+    phase === "夜戦" ||
+    phase === "友軍艦隊攻撃" ||
+    phase === "夜間支援攻撃"
+  );
+}
+
+// ── Grouped Timeline Row Model (supports multi-attacker & multi-defender) ─
+
+interface ActorEntry {
+  side: "friend" | "enemy" | "friendly_force" | "support" | "airbase";
+  idx: number | null;
+  pos: string;
+  name: string;
+  toneClass: string;
+}
+
+interface DefenderEntry {
+  side: "friend" | "enemy" | "friendly_force";
+  idx: number | null;
+  pos: string;
+  name: string;
+  toneClass: string;
+  damage: number;
+  crit: boolean;
+}
+
+type TimelineDisplayRow =
+  | {
+      isPhaseHeader: true;
+      phase: string;
+      isLegacyAirbase: boolean;
+    }
+  | {
+      isPhaseHeader: false;
+      phase: string;
+      actorRole: "main" | "airbase" | "support" | "friendly_force";
+      attackers: ActorEntry[];
+      defenders: DefenderEntry[];
+      slotIds: number[];
+    };
+
+interface RowGeometry {
+  top: number;
+  baseH: number;
+  centerY: number;
+}
+
+interface HpSnapshot {
+  fHps: Array<number | null>;
+  eHps: Array<number | null>;
+}
+
+function mstShipName(
+  mstShipById: Map<number, MstShipRecord> | null | undefined,
+  mstId: number | undefined,
+): string | null {
+  if (!mstId || !mstShipById) return null;
+  const row = mstShipById.get(mstId);
+  return row && typeof row["name"] === "string" && row["name"]
+    ? row["name"]
+    : null;
+}
+
+function toPositiveSlotIds(values: unknown): number[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+function buildDisplayRows(
+  rawEvents: TimelineEvent[],
+  fleets: BattleFleets | null,
+  mstShipById: Map<number, MstShipRecord> | null | undefined,
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null,
+  fCombined: boolean,
+  eCombined: boolean,
+  legacyAirbasePhases: Set<string>,
+): TimelineDisplayRow[] {
+  const validEvents = rawEvents.filter((ev) => ev && ev.separator !== true);
+  const grouped: Array<Extract<TimelineDisplayRow, { isPhaseHeader: false }>> =
+    [];
+
+  const resolveDefender = (
+    ev: TimelineEvent,
+  ): DefenderEntry | null => {
+    const isFriendlyForceCounter =
+      ev.actorRole === "friendly_force" && ev.defenderSide === "friend";
+    if (isFriendlyForceCounter) {
+      const idx = ev.defenderIdx;
+      return {
+        side: "friendly_force",
+        idx: null,
+        pos: idx !== null ? `友${idx + 1}` : "友軍",
+        name: idx !== null ? `友軍${idx + 1}番艦` : "友軍艦隊",
+        toneClass: "text-success",
+        damage: ev.damage,
+        crit: ev.crit,
+      };
+    }
+    if (ev.defenderIdx === null) {
+      return {
+        side: ev.defenderSide,
+        idx: null,
+        pos: "-",
+        name: "対象なし",
+        toneClass: "text-base-content/45",
+        damage: ev.damage,
+        crit: ev.crit,
+      };
+    }
+    const combined = ev.defenderSide === "friend" ? fCombined : eCombined;
+    return {
+      side: ev.defenderSide,
+      idx: ev.defenderIdx,
+      pos: shipPosLabel(ev.defenderSide, ev.defenderIdx, combined),
+      name: shipNameFromIndex(ev.defenderSide, ev.defenderIdx, fleets),
+      toneClass: ev.defenderSide === "friend" ? "text-info" : "text-error",
+      damage: ev.damage,
+      crit: ev.crit,
+    };
+  };
+
+  let i = 0;
+  while (i < validEvents.length) {
+    const ev = validEvents[i]!;
+    const role = ev.actorRole ?? "main";
+
+    // Group coordinated salvos: air attacks sharing (phase, airBatchId, attackerSide), or support attacks in the same phase
+    const isAirSalvo = ev.type === "air" && ev.airBatchId != null;
+    const isSupportSalvo = role === "support";
+
+    if (isAirSalvo || isSupportSalvo) {
+      const batch: TimelineEvent[] = [ev];
+      let j = i + 1;
+      while (j < validEvents.length) {
+        const next = validEvents[j]!;
+        const sameGroup = isAirSalvo
+          ? next.phase === ev.phase &&
+            next.type === "air" &&
+            next.airBatchId === ev.airBatchId &&
+            next.attackerSide === ev.attackerSide
+          : next.phase === ev.phase && (next.actorRole ?? "main") === "support";
+        if (!sameGroup) break;
+        batch.push(next);
+        j++;
+      }
+
+      const attackers: ActorEntry[] = [];
+      const seenAttackerKey = new Set<string>();
+      const slotIds: number[] = [];
+
+      for (const b of batch) {
+        for (const sid of toPositiveSlotIds(b.slotItems)) {
+          if (!slotIds.includes(sid)) slotIds.push(sid);
+        }
+        if (role === "support") {
+          if (b.attackerMstShipId) {
+            const key = `sup-${b.attackerMstShipId}`;
+            if (!seenAttackerKey.has(key)) {
+              seenAttackerKey.add(key);
+              attackers.push({
+                side: "support",
+                idx: null,
+                pos: `支${attackers.length + 1}`,
+                name:
+                  mstShipName(mstShipById, b.attackerMstShipId) ??
+                  `艦ID:${b.attackerMstShipId}`,
+                toneClass: "text-warning",
+              });
+            }
+          }
+        } else if (role === "airbase") {
+          const baseNo = b.airbaseBaseNo ?? b.airbaseBaseNos?.[0] ?? null;
+          const pos = baseNo ? `基地${baseNo}` : "基地";
+          const bSlots = toPositiveSlotIds(b.slotItems);
+          if (bSlots.length > 0) {
+            for (const sid of bSlots) {
+              const key = `ab-${pos}-${sid}`;
+              if (!seenAttackerKey.has(key)) {
+                seenAttackerKey.add(key);
+                const meta = slotItemMeta(sid, mstSlotItemById);
+                attackers.push({
+                  side: "airbase",
+                  idx: null,
+                  pos,
+                  name: meta.name || `装備#${sid}`,
+                  toneClass: "text-info",
+                });
+              }
+            }
+          } else {
+            const key = `ab-${pos}`;
+            if (!seenAttackerKey.has(key)) {
+              seenAttackerKey.add(key);
+              attackers.push({
+                side: "airbase",
+                idx: null,
+                pos,
+                name: baseNo ? `第${baseNo}基地航空隊` : "基地航空隊",
+                toneClass: "text-info",
+              });
+            }
+          }
+        } else {
+          const group = Array.isArray(b.attackerGroup)
+            ? b.attackerGroup.filter(
+                (v) => Number.isFinite(Number(v)) && Number(v) >= 0,
+              )
+            : [];
+          const combined = b.attackerSide === "friend" ? fCombined : eCombined;
+          for (const shipIdx of group) {
+            const key = `${b.attackerSide}-${shipIdx}`;
+            if (!seenAttackerKey.has(key)) {
+              seenAttackerKey.add(key);
+              attackers.push({
+                side: b.attackerSide,
+                idx: shipIdx,
+                pos: shipPosLabel(b.attackerSide, shipIdx, combined),
+                name: shipNameFromIndex(b.attackerSide, shipIdx, fleets),
+                toneClass:
+                  b.attackerSide === "friend" ? "text-info" : "text-error",
+              });
+            }
+          }
+        }
+      }
+
+      if (attackers.length === 0) {
+        if (role === "support") {
+          attackers.push({
+            side: "support",
+            idx: null,
+            pos: ev.phase === "夜間支援攻撃" ? "夜支" : "支援",
+            name: ev.phase === "夜間支援攻撃" ? "夜間支援艦隊" : "支援艦隊",
+            toneClass: "text-warning",
+          });
+        } else if (role === "airbase") {
+          attackers.push({
+            side: "airbase",
+            idx: null,
+            pos: "基地",
+            name: "基地航空隊",
+            toneClass: "text-info",
+          });
+        } else {
+          attackers.push({
+            side: ev.attackerSide,
+            idx: null,
+            pos: "航空",
+            name: ev.attackerSide === "friend" ? "味方航空隊" : "敵航空隊",
+            toneClass:
+              ev.attackerSide === "friend" ? "text-info" : "text-error",
+          });
+        }
+      }
+
+      const defenders = batch
+        .map(resolveDefender)
+        .filter((d): d is DefenderEntry => d !== null);
+
+      grouped.push({
+        isPhaseHeader: false,
+        phase: ev.phase,
+        actorRole: role,
+        attackers,
+        defenders,
+        slotIds,
+      });
+      i = j;
+      continue;
+    }
+
+    // Individual attack row (may still have multiple attackers e.g. concentrated torpedo)
+    const attackers: ActorEntry[] = [];
+    const combined = ev.attackerSide === "friend" ? fCombined : eCombined;
+
+    if (role === "friendly_force" && ev.attackerSide === "friend") {
+      const ffName =
+        mstShipName(mstShipById, ev.attackerMstShipId) ??
+        (ev.attackerIdx !== null ? `友軍${ev.attackerIdx + 1}番艦` : "友軍艦隊");
+      attackers.push({
+        side: "friendly_force",
+        idx: null,
+        pos: ev.attackerIdx !== null ? `友${ev.attackerIdx + 1}` : "友軍",
+        name: ffName,
+        toneClass: "text-success",
+      });
+    } else if (ev.attackerIdx !== null) {
+      attackers.push({
+        side: ev.attackerSide,
+        idx: ev.attackerIdx,
+        pos: shipPosLabel(ev.attackerSide, ev.attackerIdx, combined),
+        name: shipNameFromIndex(ev.attackerSide, ev.attackerIdx, fleets),
+        toneClass: ev.attackerSide === "friend" ? "text-info" : "text-error",
+      });
+    } else if (Array.isArray(ev.attackerGroup) && ev.attackerGroup.length > 0) {
+      for (const shipIdx of ev.attackerGroup) {
+        if (!Number.isFinite(Number(shipIdx)) || shipIdx < 0) continue;
+        attackers.push({
+          side: ev.attackerSide,
+          idx: shipIdx,
+          pos: shipPosLabel(ev.attackerSide, shipIdx, combined),
+          name: shipNameFromIndex(ev.attackerSide, shipIdx, fleets),
+          toneClass: ev.attackerSide === "friend" ? "text-info" : "text-error",
+        });
+      }
+    } else if (ev.attackerMstShipId) {
+      attackers.push({
+        side: ev.attackerSide,
+        idx: null,
+        pos: ev.attackerSide === "friend" ? "味方" : "敵",
+        name:
+          mstShipName(mstShipById, ev.attackerMstShipId) ??
+          `艦ID:${ev.attackerMstShipId}`,
+        toneClass: ev.attackerSide === "friend" ? "text-info" : "text-error",
+      });
+    } else {
+      attackers.push({
+        side: ev.attackerSide,
+        idx: null,
+        pos: ev.type === "raigeki" ? "雷撃" : "-",
+        name: ev.attackerSide === "friend" ? "味方艦" : "敵艦",
+        toneClass: ev.attackerSide === "friend" ? "text-info" : "text-error",
+      });
+    }
+
+    const defender = resolveDefender(ev);
+    grouped.push({
+      isPhaseHeader: false,
+      phase: ev.phase,
+      actorRole: role,
+      attackers,
+      defenders: defender ? [defender] : [],
+      slotIds: toPositiveSlotIds(ev.slotItems),
+    });
+    i++;
+  }
+
+  // Insert a dedicated Phase Header Row before every phase
+  const rows: TimelineDisplayRow[] = [];
+  let prevPhase = "";
+  for (const row of grouped) {
+    if (row.phase !== prevPhase) {
+      rows.push({
+        isPhaseHeader: true,
+        phase: row.phase,
+        isLegacyAirbase: legacyAirbasePhases.has(row.phase),
+      });
+      prevPhase = row.phase;
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function buildStepsForRows(
+  rows: TimelineDisplayRow[],
   fInit: Array<number | null>,
   eInit: Array<number | null>,
-): TimelineStep[] {
-  const steps: TimelineStep[] = [];
-  const fCur = fInit.length > 0 ? [...fInit] : [];
-  const eCur = eInit.length > 0 ? [...eInit] : [];
-  steps.push({ fHps: [...fCur], eHps: [...eCur], eventIdx: -1 });
-  for (let i = 0; i < events.length; i++) {
-    const ev = events[i];
-    if (!ev) continue;
-    if (ev.defenderSide === "friend" && ev.defenderIdx !== null) {
-      const current = fCur[ev.defenderIdx];
-      if (current !== null && current !== undefined) {
-        fCur[ev.defenderIdx] = Math.max(0, current - ev.damage);
-      }
-    } else if (ev.defenderSide === "enemy" && ev.defenderIdx !== null) {
-      const current = eCur[ev.defenderIdx];
-      if (current !== null && current !== undefined) {
-        eCur[ev.defenderIdx] = Math.max(0, current - ev.damage);
+): HpSnapshot[] {
+  const steps: HpSnapshot[] = [];
+  const fCur = [...fInit];
+  const eCur = [...eInit];
+  steps.push({ fHps: [...fCur], eHps: [...eCur] });
+
+  for (const row of rows) {
+    if (!row.isPhaseHeader) {
+      for (const d of row.defenders) {
+        if (d.side === "friend" && d.idx !== null) {
+          const cur = fCur[d.idx];
+          if (cur !== null && cur !== undefined) {
+            fCur[d.idx] = Math.max(0, cur - d.damage);
+          }
+        } else if (d.side === "enemy" && d.idx !== null) {
+          const cur = eCur[d.idx];
+          if (cur !== null && cur !== undefined) {
+            eCur[d.idx] = Math.max(0, cur - d.damage);
+          }
+        }
       }
     }
-    steps.push({ fHps: [...fCur], eHps: [...eCur], eventIdx: i });
+    steps.push({ fHps: [...fCur], eHps: [...eCur] });
   }
   return steps;
 }
 
-function buildPhaseRegions(
-  events: TimelineEvent[],
-): Array<{ phase: string; start: number; end: number }> {
-  const regions: Array<{ phase: string; start: number; end: number }> = [];
-  let ph = "";
-  let phStart = 0;
-  for (let i = 0; i < events.length; i++) {
-    const event = events[i];
-    if (!event) continue;
-    if (event.phase !== ph) {
-      if (ph !== "") regions.push({ phase: ph, start: phStart, end: i });
-      ph = event.phase;
-      phStart = i;
-    }
-  }
-  if (ph !== "")
-    regions.push({ phase: ph, start: phStart, end: events.length });
-  return regions;
-}
-
-// ── Ship polyline path builder ────────────────────────────────────────────
-
-interface ShipLineData {
-  d: string;
-  color: string;
-  dashed: boolean;
-  startX: number;
-  startY: number;
-  endX: number;
-  endY: number;
-  sunk: boolean;
-}
-
-function buildShipLine(
-  side: "friend" | "enemy",
-  si: number,
-  hpKey: "fHps" | "eHps",
-  colors: string[],
-  dashed: boolean,
-  steps: TimelineStep[],
-  fInit: Array<number | null>,
-  eInit: Array<number | null>,
-  fleets: BattleFleets | null,
-): ShipLineData {
-  const ship = (
-    side === "friend" ? fleets?.friendlyShips : fleets?.enemyShips
-  )?.[si];
-  const initArr = side === "friend" ? fInit : eInit;
-  const initHp = initArr[si];
-  const maxHp = ship?.maxhp ?? initHp ?? null;
-  const color = colors[si % colors.length] ?? "currentColor";
-
-  if (maxHp === null || maxHp <= 0) {
-    return {
-      d: "",
-      color,
-      dashed,
-      startX: 0,
-      startY: 0,
-      endX: 0,
-      endY: 0,
-      sunk: false,
-    };
-  }
-
-  const points = steps.map((step, s) => {
-    const hp = step[hpKey][si];
-    if (hp === null || hp === undefined) {
-      return null;
-    }
-    const pct = Math.min(100, (hp / maxHp) * 100);
-    return { x: xHP(pct), y: yStep(s) };
-  });
-
-  const p0 = points.find((point) => point !== null) ?? null;
-  const pLast = [...points].reverse().find((point) => point !== null) ?? null;
-  if (!p0 || !pLast) {
-    return {
-      d: "",
-      color,
-      dashed,
-      startX: 0,
-      startY: 0,
-      endX: 0,
-      endY: 0,
-      sunk: initHp !== null && initHp !== undefined && initHp <= 0,
-    };
-  }
-
-  let d = `M ${p0.x.toFixed(1)} ${(p0.y - EXTEND).toFixed(1)} L ${p0.x.toFixed(1)} ${p0.y.toFixed(1)}`;
-  for (let p = 1; p < points.length; p++) {
-    const prev = points[p - 1];
-    const curr = points[p];
-    if (!prev || !curr) continue;
-    const dx = Math.abs(curr.x - prev.x);
-    if (dx < 0.1) {
-      d += ` L ${curr.x.toFixed(1)} ${curr.y.toFixed(1)}`;
-    } else {
-      const diagDy = Math.min((dx * ROW_H) / INNER_W, ROW_H);
-      const midY = (prev.y + diagDy).toFixed(1);
-      d += ` L ${curr.x.toFixed(1)} ${midY} L ${curr.x.toFixed(1)} ${curr.y.toFixed(1)}`;
-    }
-  }
-
-  const endX = pLast.x;
-  const endY = pLast.y + EXTEND;
-  d += ` L ${endX.toFixed(1)} ${endY.toFixed(1)}`;
-
-  const lastStep = steps.at(-1);
-  const lastHp = lastStep?.[hpKey]?.[si] ?? null;
-
-  return {
-    d,
-    color,
-    dashed,
-    startX: xHP(
-      maxHp > 0 && initHp !== null && initHp !== undefined
-        ? Math.min(100, (initHp / maxHp) * 100)
-        : 0,
-    ),
-    startY: p0.y - EXTEND,
-    endX,
-    endY,
-    sunk: lastHp !== null && lastHp !== undefined && lastHp <= 0,
-  };
-}
-
-// ── SVG sub-components ────────────────────────────────────────────────────
-
-function ShipPolyline(props: { line: ShipLineData }): JSX.Element {
-  const r = 3.5;
+function rowTouchesShip(row: TimelineDisplayRow, shipKey: string | null): boolean {
+  if (!shipKey || row.isPhaseHeader) return false;
+  const [side, idxStr] = shipKey.split("-");
+  const idx = Number(idxStr);
   return (
-    <>
-      <path
-        d={props.line.d}
-        fill="none"
-        stroke={props.line.color}
-        stroke-width="1.8"
-        stroke-linejoin="round"
-        stroke-dasharray={props.line.dashed ? "6,2" : undefined}
-        opacity="0.9"
-      />
-      {/* Start dot */}
-      <circle
-        cx={props.line.startX.toFixed(1)}
-        cy={props.line.startY.toFixed(1)}
-        r="3"
-        fill={props.line.color}
-        opacity="0.9"
-      />
-      {/* End marker (X if sunk, circle if alive) */}
-      <Show
-        when={props.line.sunk}
-        fallback={
-          <circle
-            cx={props.line.endX.toFixed(1)}
-            cy={props.line.endY.toFixed(1)}
-            r="3"
-            fill="none"
-            stroke={props.line.color}
-            stroke-width="1.5"
-            opacity="0.7"
-          />
-        }
-      >
-        <line
-          x1={(props.line.endX - r).toFixed(1)}
-          y1={(props.line.endY - r).toFixed(1)}
-          x2={(props.line.endX + r).toFixed(1)}
-          y2={(props.line.endY + r).toFixed(1)}
-          stroke={props.line.color}
-          stroke-width="2"
-        />
-        <line
-          x1={(props.line.endX + r).toFixed(1)}
-          y1={(props.line.endY - r).toFixed(1)}
-          x2={(props.line.endX - r).toFixed(1)}
-          y2={(props.line.endY + r).toFixed(1)}
-          stroke={props.line.color}
-          stroke-width="2"
-        />
-      </Show>
-    </>
+    row.attackers.some((a) => a.side === side && a.idx === idx) ||
+    row.defenders.some((d) => d.side === side && d.idx === idx)
   );
 }
 
-function LegendRow(props: {
+// ── Legend Group sub-component ────────────────────────────────────────────
+
+function LegendGroup(props: {
+  label: string;
+  toneClass: string;
   side: "friend" | "enemy";
-  count: number;
-  colors: string[];
-  dashed: boolean;
+  startIdx: number;
+  endIdx: number;
+  isCombined: boolean;
   fleets: BattleFleets | null;
+  selectedShip: string | null;
+  onToggleShip: (key: string) => void;
 }): JSX.Element {
-  const sideLabel = props.side === "friend" ? "味方" : "敵";
-  const textCls = props.side === "friend" ? "text-info" : "text-error";
+  const indices = createMemo(() => {
+    const out: number[] = [];
+    for (let i = props.startIdx; i < props.endIdx; i++) out.push(i);
+    return out;
+  });
+
   return (
-    <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-      <span class={`text-[10px] font-bold ${textCls} w-7 shrink-0`}>
-        {sideLabel}
+    <div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[10.5px]">
+      <span class={`font-semibold w-12 shrink-0 ${props.toneClass}`}>
+        {props.label}
       </span>
-      <For each={Array.from({ length: props.count }, (_, i) => i)}>
+      <For each={indices()}>
         {(si) => {
-          const color = props.colors[si % props.colors.length] ?? "currentColor";
-          const short = createMemo(() => {
-            const name = shipNameFromIndex(props.side, si, props.fleets);
-            return name.length > 6 ? name.slice(0, 5) + "…" : name;
-          });
+          const style = shipLineStyle(props.side, si);
+          const key = `${props.side}-${si}`;
+          const isSelected = () => props.selectedShip === key;
+          const isDimmed = () =>
+            props.selectedShip !== null && props.selectedShip !== key;
+          const name = createMemo(() =>
+            shipNameFromIndex(props.side, si, props.fleets),
+          );
           return (
-            <span class="inline-flex items-center gap-0.5 text-[10px]">
-              <Show
-                when={props.dashed}
-                fallback={
-                  <span
-                    class="inline-block rounded align-middle"
-                    style={{ width: "16px", height: "2px", background: color }}
-                  />
-                }
-              >
-                <svg width="16" height="4" style="vertical-align:middle;">
-                  <line
-                    x1="0"
-                    y1="2"
-                    x2="16"
-                    y2="2"
-                    stroke={color}
-                    stroke-width="2"
-                    stroke-dasharray="5,2"
-                  />
-                </svg>
-              </Show>
-              {si + 1}番 {short()}
-            </span>
+            <button
+              type="button"
+              class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
+                isSelected()
+                  ? "bg-base-200 border-base-content/40"
+                  : "bg-transparent border-transparent hover:bg-base-200/60"
+              }`}
+              style={{ opacity: isDimmed() ? 0.42 : 1 }}
+              onClick={() => props.onToggleShip(key)}
+            >
+              <svg width="14" height="4" class="shrink-0">
+                <line
+                  x1="0"
+                  y1="2"
+                  x2="14"
+                  y2="2"
+                  stroke={style.color}
+                  stroke-width="2"
+                  stroke-dasharray={style.dash}
+                />
+              </svg>
+              <span class="font-mono text-[9.5px] text-base-content/55">
+                {shipPosLabel(props.side, si, props.isCombined)}
+              </span>
+              <span class="truncate max-w-[72px] text-base-content/85">
+                {name()}
+              </span>
+            </button>
           );
         }}
       </For>
     </div>
   );
-}
-
-// ── Hover band data ───────────────────────────────────────────────────────
-
-interface HoverBandData {
-  eventIdx: number;
-  d: string;
-}
-
-function buildHoverBands(
-  events: TimelineEvent[],
-  steps: TimelineStep[],
-  fInit: Array<number | null>,
-  eInit: Array<number | null>,
-  fleets: BattleFleets | null,
-): HoverBandData[] {
-  const bands: HoverBandData[] = [];
-  for (let i = 0; i < events.length; i++) {
-    const ev = events[i];
-    if (!ev || ev.defenderIdx === null) continue;
-    const hpKey: "fHps" | "eHps" =
-      ev.defenderSide === "friend" ? "fHps" : "eHps";
-    const ship = (
-      ev.defenderSide === "friend" ? fleets?.friendlyShips : fleets?.enemyShips
-    )?.[ev.defenderIdx];
-    const initArr = ev.defenderSide === "friend" ? fInit : eInit;
-    const initHp = initArr[ev.defenderIdx];
-    const maxHp = ship?.maxhp ?? initHp ?? null;
-    const hpFrom = steps[i]?.[hpKey]?.[ev.defenderIdx] ?? null;
-    const hpTo = steps[i + 1]?.[hpKey]?.[ev.defenderIdx] ?? null;
-    if (
-      initHp === null ||
-      initHp === undefined ||
-      maxHp === null ||
-      maxHp <= 0 ||
-      hpFrom === null ||
-      hpTo === null
-    ) {
-      continue;
-    }
-    const xFrom = xHP(Math.min(100, (hpFrom / maxHp) * 100));
-    const xTo = xHP(Math.min(100, (hpTo / maxHp) * 100));
-    const yFrom = yStep(i);
-    const dx = Math.abs(xFrom - xTo);
-    if (dx >= 0.1) {
-      const diagDy = Math.min((dx * ROW_H) / INNER_W, ROW_H);
-      const midY = (yFrom + diagDy).toFixed(1);
-      bands.push({
-        eventIdx: i,
-        d: `M ${xFrom.toFixed(1)} ${yFrom.toFixed(1)} L ${xTo.toFixed(1)} ${midY}`,
-      });
-    }
-  }
-  return bands;
 }
 
 // ── Main Timeline Component ───────────────────────────────────────────────
@@ -371,30 +581,14 @@ export default function BattleTimelineView(props: {
   showPhaseSeparators?: boolean;
   showLegacyAirbasePhaseWarning?: boolean;
 }): JSX.Element {
-  const [hoveredStep, setHoveredStep] = createSignal<number | null>(null);
+  const [hoveredRow, setHoveredRow] = createSignal<number | null>(null);
+  const [selectedRow, setSelectedRow] = createSignal<number | null>(null);
+  const [selectedShip, setSelectedShip] = createSignal<string | null>(null);
 
   const rawEvents = createMemo(() =>
     buildTimelineEvents(props.battle, props.fleets),
   );
-  // Filter out separator (blank) rows when the user has disabled phase separators.
-  const events = createMemo(() =>
-    props.showPhaseSeparators !== false
-      ? rawEvents()
-      : rawEvents().filter((ev) => !ev.separator),
-  );
   const initHps = createMemo(() => buildInitialHps(props.battle));
-  const steps = createMemo(() =>
-    buildSteps(events(), initHps().fInit, initHps().eInit),
-  );
-  const phaseRegions = createMemo(() => buildPhaseRegions(events()));
-  const legacyAirbasePhases = createMemo(() => {
-    if (!props.showLegacyAirbasePhaseWarning) return new Set<string>();
-    return new Set(
-      events()
-        .filter((ev) => ev.separator !== true && ev.actorRole === "airbase")
-        .map((ev) => ev.phase),
-    );
-  });
 
   const fCount = createMemo(
     () => props.fleets?.friendlyShips?.length || initHps().fInit.length || 6,
@@ -402,513 +596,898 @@ export default function BattleTimelineView(props: {
   const eCount = createMemo(
     () => props.fleets?.enemyShips?.length || initHps().eInit.length || 6,
   );
-  const chartH = createMemo(() => PAD_TOP + steps().length * ROW_H + PAD_BOT);
+  const fCombined = createMemo(() => fCount() > 6);
+  const eCombined = createMemo(() => eCount() > 6);
 
-  const friendLines = createMemo(() =>
-    Array.from({ length: fCount() }, (_, si) =>
-      buildShipLine(
-        "friend",
-        si,
-        "fHps",
-        FRIEND_COLORS,
-        false,
-        steps(),
-        initHps().fInit,
-        initHps().eInit,
-        props.fleets,
-      ),
-    ),
-  );
-  const enemyLines = createMemo(() =>
-    Array.from({ length: eCount() }, (_, si) =>
-      buildShipLine(
-        "enemy",
-        si,
-        "eHps",
-        ENEMY_COLORS,
-        true,
-        steps(),
-        initHps().fInit,
-        initHps().eInit,
-        props.fleets,
-      ),
-    ),
-  );
-  const hoverBands = createMemo(() =>
-    buildHoverBands(
-      events(),
-      steps(),
-      initHps().fInit,
-      initHps().eInit,
+  const legacyAirbasePhases = createMemo(() => {
+    if (!props.showLegacyAirbasePhaseWarning) return new Set<string>();
+    return new Set(
+      rawEvents()
+        .filter((ev) => ev.separator !== true && ev.actorRole === "airbase")
+        .map((ev) => ev.phase),
+    );
+  });
+
+  const rows = createMemo(() =>
+    buildDisplayRows(
+      rawEvents(),
       props.fleets,
+      props.mstShipById,
+      props.mstSlotItemById,
+      fCombined(),
+      eCombined(),
+      legacyAirbasePhases(),
     ),
   );
-  const eventIndices = createMemo(() =>
-    Array.from({ length: events().length }, (_, i) => i),
+
+  const steps = createMemo(() =>
+    buildStepsForRows(rows(), initHps().fInit, initHps().eInit),
   );
 
-  const bridgeW = 34;
+  const maxHpFor = (side: "friend" | "enemy", idx: number): number | null => {
+    const ship = (
+      side === "friend" ? props.fleets?.friendlyShips : props.fleets?.enemyShips
+    )?.[idx];
+    const initArr = side === "friend" ? initHps().fInit : initHps().eInit;
+    const m = ship?.maxhp ?? initArr[idx] ?? null;
+    return m !== null && m > 0 ? m : null;
+  };
+
+  // Compute exact row vertical geometry: constant slope + centered diagonal + >= MIN_DIAG_GAP clearance
+  const layout = createMemo(() => {
+    const rList = rows();
+    const sList = steps();
+    const geom: RowGeometry[] = [];
+    let curY = PAD_TOP;
+
+    for (let ri = 0; ri < rList.length; ri++) {
+      const r = rList[ri]!;
+      let maxDiagDy = 0;
+      if (!r.isPhaseHeader) {
+        for (const d of r.defenders) {
+          if ((d.side !== "friend" && d.side !== "enemy") || d.idx === null) {
+            continue;
+          }
+          const hpKey = d.side === "friend" ? "fHps" : "eHps";
+          const mHp = maxHpFor(d.side, d.idx);
+          const before = sList[ri]?.[hpKey]?.[d.idx];
+          const after = sList[ri + 1]?.[hpKey]?.[d.idx];
+          if (mHp && before != null && after != null) {
+            const xFrom = xHP(Math.min(100, (before / mHp) * 100));
+            const xTo = xHP(Math.min(100, (after / mHp) * 100));
+            maxDiagDy = Math.max(maxDiagDy, calcDiagDy(xFrom, xTo));
+          }
+        }
+      }
+      const lineCount = r.isPhaseHeader
+        ? 1
+        : Math.max(r.attackers.length, r.defenders.length, 1);
+      const contentH = lineCount === 1 ? BASE_ROW_H : lineCount * LINE_H + 8;
+      const minDiagH =
+        maxDiagDy > 0.1 ? Math.ceil(maxDiagDy + MIN_DIAG_GAP) : BASE_ROW_H;
+      const baseH = Math.max(contentH, minDiagH);
+      geom.push({
+        top: curY,
+        baseH,
+        centerY: curY + baseH / 2,
+      });
+      curY += baseH;
+    }
+
+    return {
+      geom,
+      bodyEndY: curY,
+      bodyH: curY - PAD_TOP,
+      chartH: curY + PAD_BOT,
+    };
+  });
+
+  // Build SVG polyline path for each ship (constant slope, centered around row centerY)
+  const buildShipPolyline = (side: "friend" | "enemy", si: number) => {
+    const hpKey = side === "friend" ? "fHps" : "eHps";
+    const mHp = maxHpFor(side, si);
+    const { color, dash } = shipLineStyle(side, si);
+    const sList = steps();
+    const { geom, bodyEndY } = layout();
+
+    if (!mHp) return null;
+    const initHp = sList[0]?.[hpKey]?.[si];
+    if (initHp == null) return null;
+
+    const initX = xHP(Math.min(100, (initHp / mHp) * 100));
+    let d = `M ${initX.toFixed(1)} ${PAD_TOP.toFixed(1)}`;
+    let prevX = initX;
+
+    for (let ri = 0; ri < geom.length; ri++) {
+      const g = geom[ri]!;
+      const hp = sList[ri + 1]?.[hpKey]?.[si];
+      if (hp == null) continue;
+      const curX = xHP(Math.min(100, (hp / mHp) * 100));
+      if (Math.abs(curX - prevX) < 0.1) {
+        d += ` L ${curX.toFixed(1)} ${g.centerY.toFixed(1)}`;
+      } else {
+        const halfDy = calcDiagDy(prevX, curX) / 2;
+        const yFrom = g.centerY - halfDy;
+        const yTo = g.centerY + halfDy;
+        d += ` L ${prevX.toFixed(1)} ${yFrom.toFixed(1)} L ${curX.toFixed(1)} ${yTo.toFixed(1)}`;
+      }
+      prevX = curX;
+    }
+
+    const endY = bodyEndY + 4;
+    d += ` L ${prevX.toFixed(1)} ${endY.toFixed(1)}`;
+    const lastHp = sList.at(-1)?.[hpKey]?.[si];
+    const sunk = lastHp != null && lastHp <= 0;
+
+    return {
+      key: `${side}-${si}`,
+      d,
+      color,
+      dash,
+      startX: initX,
+      endX: prevX,
+      endY,
+      sunk,
+    };
+  };
+
+  const shipLines = createMemo(() => {
+    const out: Array<NonNullable<ReturnType<typeof buildShipPolyline>>> = [];
+    for (let i = 0; i < fCount(); i++) {
+      const line = buildShipPolyline("friend", i);
+      if (line) out.push(line);
+    }
+    for (let i = 0; i < eCount(); i++) {
+      const line = buildShipPolyline("enemy", i);
+      if (line) out.push(line);
+    }
+    return out;
+  });
+
+  // Diagonal drop highlights for BOTH pinned selectedRow and hoveredRow
+  const activeDrops = createMemo(() => {
+    const targets: Array<{ ri: number; pinned: boolean }> = [];
+    const sel = selectedRow();
+    const hov = hoveredRow();
+    if (sel !== null) targets.push({ ri: sel, pinned: true });
+    if (hov !== null && hov !== sel) targets.push({ ri: hov, pinned: false });
+
+    const rList = rows();
+    const sList = steps();
+    const { geom } = layout();
+
+    const segments: Array<{
+      xFrom: number;
+      yFrom: number;
+      xTo: number;
+      yTo: number;
+      centerY: number;
+      color: string;
+      pinned: boolean;
+      isMiss: boolean;
+    }> = [];
+
+    for (const { ri, pinned } of targets) {
+      const r = rList[ri];
+      const g = geom[ri];
+      if (!r || r.isPhaseHeader || !g) continue;
+      for (const d of r.defenders) {
+        if ((d.side !== "friend" && d.side !== "enemy") || d.idx === null) {
+          continue;
+        }
+        const hpKey = d.side === "friend" ? "fHps" : "eHps";
+        const mHp = maxHpFor(d.side, d.idx);
+        const before = sList[ri]?.[hpKey]?.[d.idx];
+        const after = sList[ri + 1]?.[hpKey]?.[d.idx];
+        if (!mHp || before == null || after == null) continue;
+        const xFrom = xHP(Math.min(100, (before / mHp) * 100));
+        const xTo = xHP(Math.min(100, (after / mHp) * 100));
+        const halfDy = calcDiagDy(xFrom, xTo) / 2;
+        const { color } = shipLineStyle(d.side, d.idx);
+        segments.push({
+          xFrom,
+          yFrom: g.centerY - halfDy,
+          xTo,
+          yTo: g.centerY + halfDy,
+          centerY: g.centerY,
+          color,
+          pinned,
+          isMiss: Math.abs(xTo - xFrom) < 0.1,
+        });
+      }
+    }
+    return segments;
+  });
+
+  const toggleShip = (key: string) => {
+    setSelectedShip((prev) => (prev === key ? null : key));
+  };
+
+  const toggleRow = (ri: number) => {
+    setSelectedRow((prev) => (prev === ri ? null : ri));
+  };
 
   return (
     <Show
-      when={events().length > 0}
+      when={rows().length > 0}
       fallback={
-        <div class="text-center text-base-content/40 py-8">
+        <div class="text-center text-base-content/40 py-8 text-sm">
           詳細イベントなし
         </div>
       }
     >
-      <div class="overflow-x-auto">
-        {/* Legend */}
-        <div class="space-y-1 mb-2 select-none">
-          <LegendRow
-            side="friend"
-            count={fCount()}
-            colors={FRIEND_COLORS}
-            dashed={false}
-            fleets={props.fleets}
-          />
-          <LegendRow
-            side="enemy"
-            count={eCount()}
-            colors={ENEMY_COLORS}
-            dashed={true}
-            fleets={props.fleets}
-          />
+      <div class="space-y-2.5">
+        {/* Status & Clear Selection Bar */}
+        <div class="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+          <span class="text-base-content/55">
+            <span class="md:hidden">
+              凡例または折れ線タップで艦のHP推移を強調（各攻撃の詳細は「フェーズ」タブで確認できます）
+            </span>
+            <span class="hidden md:inline">
+              凡例・折れ線クリックで艦を絞り込み／グラフ・行クリックで選択固定
+            </span>
+          </span>
+          <Show
+            when={selectedShip() !== null || selectedRow() !== null}
+            fallback={
+              <span class="text-[10.5px] text-base-content/40">
+                全艦 等透明度表示中
+              </span>
+            }
+          >
+            <button
+              type="button"
+              class="px-2 py-0.5 rounded border border-base-300 bg-base-200/80 text-[11px] font-medium text-base-content hover:bg-base-200 cursor-pointer"
+              onClick={() => {
+                setSelectedShip(null);
+                setSelectedRow(null);
+              }}
+            >
+              選択解除（すべて等透明度で表示）
+            </button>
+          </Show>
         </div>
 
-        <div class="flex gap-0 min-w-[720px]">
-          {/* Left panel: SVG chart */}
-          <div class="shrink-0 select-none" style={{ width: `${CHART_W}px` }}>
-            <svg
-              width={CHART_W}
-              height={chartH()}
-              style="overflow:visible;display:block;"
-              class="text-base-content"
-            >
-              {/* Zone backgrounds */}
-              <For each={[...DAMAGE_ZONES]}>
-                {(z) => (
-                  <rect
-                    x={xHP(z.from).toFixed(1)}
-                    y={PAD_TOP}
-                    width={(((z.to - z.from) / 100) * INNER_W).toFixed(1)}
-                    height={steps().length * ROW_H}
-                    fill={z.fill}
-                    opacity="0.06"
-                  />
-                )}
-              </For>
+        {/* Grouped Legend (Combined Fleet splits 1st/2nd & Main/Escort) */}
+        <div class="space-y-1 pb-2.5 border-b border-base-300/60 select-none">
+          <Show
+            when={fCombined()}
+            fallback={
+              <LegendGroup
+                label="味方艦隊"
+                toneClass="text-info"
+                side="friend"
+                startIdx={0}
+                endIdx={fCount()}
+                isCombined={false}
+                fleets={props.fleets}
+                selectedShip={selectedShip()}
+                onToggleShip={toggleShip}
+              />
+            }
+          >
+            <LegendGroup
+              label="味方 第1"
+              toneClass="text-info"
+              side="friend"
+              startIdx={0}
+              endIdx={6}
+              isCombined={true}
+              fleets={props.fleets}
+              selectedShip={selectedShip()}
+              onToggleShip={toggleShip}
+            />
+            <LegendGroup
+              label="味方 第2"
+              toneClass="text-success"
+              side="friend"
+              startIdx={6}
+              endIdx={fCount()}
+              isCombined={true}
+              fleets={props.fleets}
+              selectedShip={selectedShip()}
+              onToggleShip={toggleShip}
+            />
+          </Show>
 
-              {/* Night battle bg */}
-              <For each={phaseRegions().filter((r) => r.phase === "夜戦")}>
-                {(reg) => (
-                  <rect
-                    x={PAD_L}
-                    y={PAD_TOP + reg.start * ROW_H}
-                    width={INNER_W}
-                    height={(reg.end - reg.start) * ROW_H}
-                    fill="#818cf8"
-                    opacity="0.07"
-                  />
-                )}
-              </For>
+          <Show
+            when={eCombined()}
+            fallback={
+              <LegendGroup
+                label="敵艦隊"
+                toneClass="text-error"
+                side="enemy"
+                startIdx={0}
+                endIdx={eCount()}
+                isCombined={false}
+                fleets={props.fleets}
+                selectedShip={selectedShip()}
+                onToggleShip={toggleShip}
+              />
+            }
+          >
+            <LegendGroup
+              label="敵 主力"
+              toneClass="text-error"
+              side="enemy"
+              startIdx={0}
+              endIdx={6}
+              isCombined={true}
+              fleets={props.fleets}
+              selectedShip={selectedShip()}
+              onToggleShip={toggleShip}
+            />
+            <LegendGroup
+              label="敵 随伴"
+              toneClass="text-warning"
+              side="enemy"
+              startIdx={6}
+              endIdx={eCount()}
+              isCombined={true}
+              fleets={props.fleets}
+              selectedShip={selectedShip()}
+              onToggleShip={toggleShip}
+            />
+          </Show>
+        </div>
 
-              {/* X-axis grid lines + labels */}
-              <For each={[0, 25, 50, 75, 100]}>
-                {(pct) => {
-                  const heavy = pct === 0 || pct === 100;
-                  return (
-                    <>
-                      <line
-                        x1={xHP(pct).toFixed(1)}
-                        y1={PAD_TOP}
-                        x2={xHP(pct).toFixed(1)}
-                        y2={PAD_TOP + steps().length * ROW_H}
-                        stroke="currentColor"
-                        stroke-width={heavy ? 0.7 : 0.4}
-                        opacity={heavy ? 0.25 : 0.15}
-                      />
-                      <text
-                        x={xHP(pct).toFixed(1)}
-                        y={PAD_TOP - 9}
-                        text-anchor="middle"
-                        font-size="9"
-                        fill="currentColor"
-                        opacity="0.5"
-                      >
-                        {pct}%
-                      </text>
-                    </>
-                  );
-                }}
-              </For>
-
-              {/* Zone labels */}
-              <For each={[...DAMAGE_ZONES].filter((z) => z.label)}>
-                {(z) => (
-                  <text
-                    x={xHP((z.from + z.to) / 2).toFixed(1)}
-                    y={PAD_TOP - 1}
-                    text-anchor="middle"
-                    font-size="7"
-                    fill={z.fill}
-                    opacity="0.65"
-                  >
-                    {z.label}
-                  </text>
-                )}
-              </For>
-
-              {/* Horizontal step guides */}
-              <For each={eventIndices()}>
-                {(s) => (
-                  <Show when={!events()[s]?.separator}>
-                    <line
-                      x1={PAD_L}
-                      y1={yStep(s).toFixed(1)}
-                      x2={(CHART_W - PAD_R).toFixed(1)}
-                      y2={yStep(s).toFixed(1)}
-                      stroke="currentColor"
-                      stroke-width="0.3"
-                      opacity="0.07"
-                    />
-                  </Show>
-                )}
-              </For>
-
-              {/* Phase boundaries */}
-              <For each={phaseRegions()}>
-                {(reg, ri) => {
-                  if (ri() === 0) return null;
-                  const isNight = reg.phase === "夜戦";
-                  const lnColor = isNight ? "#818cf8" : "#94a3b8";
-                  const yB = PAD_TOP + reg.start * ROW_H;
-                  return (
-                    <>
-                      <line
-                        x1={PAD_L}
-                        y1={yB}
-                        x2={CHART_W - PAD_R}
-                        y2={yB}
-                        stroke={lnColor}
-                        stroke-width={isNight ? 1.2 : 1}
-                        opacity="0.6"
-                        stroke-dasharray={isNight ? "3,3" : "4,3"}
-                      />
-                      <text
-                        x={PAD_L + 3}
-                        y={yB + 9}
-                        font-size="8"
-                        fill={lnColor}
-                        opacity="0.75"
-                      >
-                        {reg.phase}
-                      </text>
-                    </>
-                  );
-                }}
-              </For>
-
-              {/* Hover bands */}
-              <For each={hoverBands()}>
-                {(band) => (
-                  <path
-                    d={band.d}
-                    fill="none"
-                    stroke="#3b82f6"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width={hoveredStep() === band.eventIdx ? 9 : 8}
-                    opacity={hoveredStep() === band.eventIdx ? 0.45 : 0}
-                  />
-                )}
-              </For>
-
-              {/* Ship polylines */}
-              <For each={friendLines()}>
-                {(line) => <ShipPolyline line={line} />}
-              </For>
-              <For each={enemyLines()}>
-                {(line) => <ShipPolyline line={line} />}
-              </For>
-
-              {/* Anchor dots at right edge */}
-              <For each={eventIndices()}>
-                {(i) => (
-                  <Show when={!events()[i]?.separator}>
-                    <circle
-                      cx={(CHART_W - PAD_R).toFixed(1)}
-                      cy={yStep(i).toFixed(1)}
-                      r={hoveredStep() === i ? 3.2 : 1.8}
-                      fill="#64748b"
-                      opacity={hoveredStep() === i ? 1 : 0.35}
-                    />
-                  </Show>
-                )}
-              </For>
-            </svg>
+        <Show when={legacyAirbasePhases().size > 0}>
+          <div class="rounded border border-warning/50 bg-warning/10 px-2.5 py-1.5 text-[11px] text-warning-content/90">
+            0.6.0 未満の既知不具合: 基地航空隊が関与するフェーズの参照解決は正確でない可能性があります。
           </div>
+        </Show>
 
-          {/* Bridge panel */}
-          <div class="shrink-0" style={{ width: `${bridgeW}px` }}>
-            <svg
-              width={bridgeW}
-              height={chartH()}
-              style="display:block;overflow:visible;"
-            >
-              <For each={eventIndices()}>
-                {(i) => (
-                  <Show when={!events()[i]?.separator}>
-                    <line
-                      x1="2"
-                      y1={yStep(i).toFixed(1)}
-                      x2={bridgeW - 2}
-                      y2={yStep(i).toFixed(1)}
-                      stroke="#94a3b8"
-                      stroke-width={hoveredStep() === i ? 2.2 : 1}
-                      opacity={hoveredStep() === i ? 0.9 : 0.22}
+        {/* Main Timeline Body:
+            - Mobile (< md): Full-width responsive HP graph only (Option 1: clean overview)
+            - Desktop (md+): Left SVG chart + Bridge + Strictly aligned right event list */}
+        <div class="md:overflow-x-auto">
+          <div class="flex md:min-w-[920px]">
+            {/* Left SVG HP Trajectory Chart (full-width on mobile, fixed CHART_W on md+) */}
+            <div class="w-full md:w-[400px] shrink-0 select-none">
+              <svg
+                width={CHART_W}
+                height={layout().chartH}
+                viewBox={`0 0 ${CHART_W} ${layout().chartH}`}
+                class="block w-full md:w-[400px] h-auto text-base-content"
+                style="overflow:visible;"
+              >
+                {/* Damage zone backgrounds */}
+                <For each={[...DAMAGE_ZONES]}>
+                  {(z) => (
+                    <rect
+                      x={xHP(z.from).toFixed(1)}
+                      y={PAD_TOP}
+                      width={(((z.to - z.from) / 100) * INNER_W).toFixed(1)}
+                      height={layout().bodyH}
+                      fill={z.fill}
+                      opacity="0.06"
                     />
-                  </Show>
-                )}
-              </For>
-            </svg>
-          </div>
+                  )}
+                </For>
 
-          {/* Right panel: event list */}
-          <div class="min-w-0 flex-1 border-l border-base-300/60 pl-3 overflow-hidden">
-            <div style={{ height: `${PAD_TOP}px` }} class="flex items-end pb-1">
-              <span class="text-[9px] text-base-content/35 uppercase tracking-wide">
-                攻撃艦
-              </span>
-              <span class="ml-auto text-[9px] text-base-content/35 uppercase tracking-wide pr-1">
-                対象 / 結果
-              </span>
+                {/* X-axis grid lines + percentage labels */}
+                <For each={[0, 25, 50, 75, 100]}>
+                  {(pct) => {
+                    const heavy = pct === 0 || pct === 100;
+                    return (
+                      <>
+                        <line
+                          x1={xHP(pct).toFixed(1)}
+                          y1={PAD_TOP}
+                          x2={xHP(pct).toFixed(1)}
+                          y2={layout().bodyEndY}
+                          stroke="currentColor"
+                          stroke-width={heavy ? 0.7 : 0.4}
+                          opacity={heavy ? 0.25 : 0.14}
+                        />
+                        <text
+                          x={xHP(pct).toFixed(1)}
+                          y={PAD_TOP - 9}
+                          text-anchor="middle"
+                          font-size="9"
+                          fill="currentColor"
+                          opacity="0.5"
+                        >
+                          {pct}%
+                        </text>
+                      </>
+                    );
+                  }}
+                </For>
+
+                {/* Damage zone labels */}
+                <For each={[...DAMAGE_ZONES].filter((z) => z.label)}>
+                  {(z) => (
+                    <text
+                      x={xHP((z.from + z.to) / 2).toFixed(1)}
+                      y={PAD_TOP - 1}
+                      text-anchor="middle"
+                      font-size="7.5"
+                      fill={z.fill}
+                      opacity="0.7"
+                    >
+                      {z.label}
+                    </text>
+                  )}
+                </For>
+
+                {/* Phase header bands & dashed separators (phase label shown inside chart on mobile) */}
+                <For each={rows()}>
+                  {(r, ri) => {
+                    const g = () => layout().geom[ri()]!;
+                    if (!r.isPhaseHeader) return null;
+                    const night = isNightPhase(r.phase);
+                    return (
+                      <>
+                        <rect
+                          x={PAD_L}
+                          y={g().top}
+                          width={INNER_W}
+                          height={g().baseH}
+                          fill={night ? "#818cf8" : "#94a3b8"}
+                          opacity={night ? 0.12 : 0.09}
+                        />
+                        <line
+                          x1={PAD_L}
+                          y1={g().top}
+                          x2={CHART_W - PAD_R}
+                          y2={g().top}
+                          stroke={night ? "#818cf8" : "#64748b"}
+                          stroke-width="1"
+                          stroke-dasharray="3,3"
+                          opacity="0.55"
+                        />
+                        <text
+                          x={PAD_L + 5}
+                          y={g().top + 16}
+                          font-size="10"
+                          font-weight="600"
+                          fill={night ? "#818cf8" : "currentColor"}
+                          opacity="0.88"
+                          class="md:hidden"
+                        >
+                          {r.phase}
+                        </text>
+                      </>
+                    );
+                  }}
+                </For>
+
+                {/* Interactive row hit bands on SVG chart */}
+                <For each={rows()}>
+                  {(r, ri) => {
+                    if (r.isPhaseHeader) return null;
+                    const g = () => layout().geom[ri()]!;
+                    const isSelRow = () => selectedRow() === ri();
+                    const isHovRow = () => hoveredRow() === ri();
+                    const isRel = () => rowTouchesShip(r, selectedShip());
+                    return (
+                      <>
+                        <rect
+                          x={PAD_L}
+                          y={g().top}
+                          width={INNER_W}
+                          height={g().baseH}
+                          fill={
+                            isSelRow() || isHovRow()
+                              ? "#4ea8ff"
+                              : isRel()
+                                ? "#3ecf8e"
+                                : "transparent"
+                          }
+                          opacity={
+                            isSelRow()
+                              ? 0.18
+                              : isHovRow()
+                                ? 0.11
+                                : isRel()
+                                  ? 0.1
+                                  : 0
+                          }
+                          style="cursor:pointer;"
+                          onMouseEnter={() => setHoveredRow(ri())}
+                          onMouseLeave={() => setHoveredRow(null)}
+                          onClick={() => toggleRow(ri())}
+                        />
+                        <line
+                          x1={PAD_L}
+                          y1={g().centerY.toFixed(1)}
+                          x2={(CHART_W - PAD_R).toFixed(1)}
+                          y2={g().centerY.toFixed(1)}
+                          stroke="currentColor"
+                          stroke-width="0.3"
+                          opacity={isSelRow() || isHovRow() ? 0.28 : 0.06}
+                          pointer-events="none"
+                        />
+                      </>
+                    );
+                  }}
+                </For>
+
+                {/* Diagonal HP drop highlights (pinned selection + hover) */}
+                <For each={activeDrops()}>
+                  {(seg) => (
+                    <Show
+                      when={!seg.isMiss}
+                      fallback={
+                        <circle
+                          cx={seg.xTo.toFixed(1)}
+                          cy={seg.centerY.toFixed(1)}
+                          r="4.8"
+                          fill="none"
+                          stroke={seg.color}
+                          stroke-width="1.8"
+                          opacity="0.85"
+                          pointer-events="none"
+                        />
+                      }
+                    >
+                      <path
+                        d={`M ${seg.xFrom.toFixed(1)} ${seg.yFrom.toFixed(1)} L ${seg.xTo.toFixed(1)} ${seg.yTo.toFixed(1)}`}
+                        fill="none"
+                        stroke={seg.color}
+                        stroke-width={seg.pinned ? 10 : 8}
+                        stroke-linecap="round"
+                        opacity={seg.pinned ? 0.48 : 0.32}
+                        pointer-events="none"
+                      />
+                      <circle
+                        cx={seg.xFrom.toFixed(1)}
+                        cy={seg.yFrom.toFixed(1)}
+                        r="3.2"
+                        fill={seg.color}
+                        pointer-events="none"
+                      />
+                      <circle
+                        cx={seg.xTo.toFixed(1)}
+                        cy={seg.yTo.toFixed(1)}
+                        r="3.8"
+                        fill={seg.color}
+                        stroke="#ffffff"
+                        stroke-width="1.2"
+                        pointer-events="none"
+                      />
+                    </Show>
+                  )}
+                </For>
+
+                {/* Interactive Ship Polylines */}
+                <For each={shipLines()}>
+                  {(line) => {
+                    const isSelected = () => selectedShip() === line.key;
+                    const opacity = () =>
+                      selectedShip() === null
+                        ? 0.9
+                        : isSelected()
+                          ? 1
+                          : 0.15;
+                    const r = 3.5;
+                    return (
+                      <g
+                        style={{
+                          cursor: "pointer",
+                          opacity: opacity(),
+                          transition: "opacity 120ms ease",
+                        }}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          toggleShip(line.key);
+                        }}
+                      >
+                        <path
+                          d={line.d}
+                          fill="none"
+                          stroke="transparent"
+                          stroke-width="10"
+                        />
+                        <path
+                          d={line.d}
+                          fill="none"
+                          stroke={line.color}
+                          stroke-width={isSelected() ? 2.8 : 1.7}
+                          stroke-linejoin="round"
+                          stroke-dasharray={line.dash}
+                        />
+                        <circle
+                          cx={line.startX.toFixed(1)}
+                          cy={PAD_TOP}
+                          r="2.6"
+                          fill={line.color}
+                        />
+                        <Show
+                          when={line.sunk}
+                          fallback={
+                            <circle
+                              cx={line.endX.toFixed(1)}
+                              cy={line.endY.toFixed(1)}
+                              r="2.6"
+                              fill="none"
+                              stroke={line.color}
+                              stroke-width="1.5"
+                            />
+                          }
+                        >
+                          <line
+                            x1={(line.endX - r).toFixed(1)}
+                            y1={(line.endY - r).toFixed(1)}
+                            x2={(line.endX + r).toFixed(1)}
+                            y2={(line.endY + r).toFixed(1)}
+                            stroke={line.color}
+                            stroke-width="2"
+                          />
+                          <line
+                            x1={(line.endX + r).toFixed(1)}
+                            y1={(line.endY - r).toFixed(1)}
+                            x2={(line.endX - r).toFixed(1)}
+                            y2={(line.endY + r).toFixed(1)}
+                            stroke={line.color}
+                            stroke-width="2"
+                          />
+                        </Show>
+                      </g>
+                    );
+                  }}
+                </For>
+
+                {/* Anchor dots at right edge (desktop only) */}
+                <For each={rows()}>
+                  {(r, ri) => {
+                    if (r.isPhaseHeader) return null;
+                    const g = () => layout().geom[ri()]!;
+                    const active = () =>
+                      selectedRow() === ri() || hoveredRow() === ri();
+                    return (
+                      <circle
+                        cx={(CHART_W - PAD_R).toFixed(1)}
+                        cy={g().centerY.toFixed(1)}
+                        r={active() ? 3.2 : 1.6}
+                        fill={active() ? "#4ea8ff" : "#64748b"}
+                        opacity={active() ? 1 : 0.35}
+                        pointer-events="none"
+                        class="hidden md:block"
+                      />
+                    );
+                  }}
+                </For>
+              </svg>
             </div>
 
-            <Show when={legacyAirbasePhases().size > 0}>
-              <div class="mb-2 rounded border border-warning/50 bg-warning/10 px-2 py-1.5 text-[11px] text-warning-content/90">
-                0.6.0 未満の既知不具合: 基地航空隊が関与するフェーズの参照解決は正確でない可能性があります。
+            {/* Bridge lines (desktop only) */}
+            <div
+              class="hidden md:block shrink-0"
+              style={{ width: `${BRIDGE_W}px` }}
+            >
+              <svg
+                width={BRIDGE_W}
+                height={layout().chartH}
+                style="display:block;overflow:visible;"
+              >
+                <For each={rows()}>
+                  {(r, ri) => {
+                    if (r.isPhaseHeader) return null;
+                    const g = () => layout().geom[ri()]!;
+                    const isSel = () => selectedRow() === ri();
+                    const isHov = () => hoveredRow() === ri();
+                    const isRel = () => rowTouchesShip(r, selectedShip());
+                    return (
+                      <line
+                        x1="2"
+                        y1={g().centerY.toFixed(1)}
+                        x2={BRIDGE_W - 2}
+                        y2={g().centerY.toFixed(1)}
+                        stroke={
+                          isSel() || isHov()
+                            ? "#4ea8ff"
+                            : isRel()
+                              ? "#3ecf8e"
+                              : "#94a3b8"
+                        }
+                        stroke-width={
+                          isSel() ? 2.4 : isHov() ? 1.8 : isRel() ? 1.5 : 1
+                        }
+                        opacity={
+                          isSel()
+                            ? 1
+                            : isHov()
+                              ? 0.85
+                              : isRel()
+                                ? 0.75
+                                : 0.22
+                        }
+                      />
+                    );
+                  }}
+                </For>
+              </svg>
+            </div>
+
+            {/* Right Event List (desktop only, strictly aligned columns + dedicated phase header rows) */}
+            <div class="hidden md:block flex-1 min-w-[490px] border-l border-base-300/60 pl-3">
+              {/* Column Headers aligned with PAD_TOP */}
+              <div
+                style={{ height: `${PAD_TOP}px` }}
+                class="grid grid-cols-[142px_16px_196px_minmax(0,1fr)] items-end pb-1 gap-x-2 text-[10px] font-medium text-base-content/50"
+              >
+                <span>攻撃側</span>
+                <span />
+                <div class="flex items-center justify-between">
+                  <span>防御側</span>
+                  <span>ダメージ</span>
+                </div>
+                <span>使用装備</span>
               </div>
-            </Show>
 
-            <For each={events()}>
-              {(ev, i) => {
-                const isSep = ev.separator === true;
-                // createMemo calls must be at top level of each For item scope.
-                const phaseChanged = () => {
-                  const idx = i();
-                  return idx === 0 || events()[idx - 1]?.phase !== ev.phase;
-                };
-                const atkIdx = isSep ? null : ev.attackerIdx;
-                const defIdx =
-                  isSep || ev.defenderIdx == null ? null : Number(ev.defenderIdx);
-                const atkGroup = Array.isArray(ev.attackerGroup)
-                  ? ev.attackerGroup.filter(
-                      (v) => Number.isFinite(Number(v)) && Number(v) >= 0,
-                    )
-                  : [];
-                const atkGroupNames = createMemo(() =>
-                  (ev.type === "air" || ev.type === "raigeki") &&
-                  atkGroup.length > 0
-                    ? atkGroup
-                        .map((v) =>
-                          shipNameFromIndex(
-                            ev.attackerSide,
-                            Number(v),
-                            props.fleets,
-                          ),
-                        )
-                        .filter((name) => name && name !== "-")
-                    : [],
-                );
-                const atkLabel = createMemo(() =>
-                  atkIdx !== null
-                    ? `${atkIdx + 1}番`
-                    : ev.type === "air" || ev.type === "raigeki"
-                      ? atkGroup.length > 0
-                        ? `${atkGroup.map((v) => Number(v) + 1).join("+")}番`
-                        : ev.type === "air"
-                          ? "航空"
-                          : "雷撃"
-                      : "?",
-                );
-                      const defLabel = defIdx !== null ? `${defIdx + 1}番` : "-";
-                const atkShort = createMemo(() => {
-                  if (atkIdx !== null) {
-                    return shipNameFromIndex(
-                      ev.attackerSide,
-                      atkIdx,
-                      props.fleets,
-                    );
-                  }
-                  // Friendly force / support ships: resolve from mst_ship master data.
-                  if (ev.attackerMstShipId) {
-                    const mstShip = props.mstShipById?.get(
-                      ev.attackerMstShipId,
-                    );
-                    if (mstShip)
-                      return String(mstShip["name"] ?? ev.attackerMstShipId);
-                  }
-                  if (
-                    (ev.type === "air" || ev.type === "raigeki") &&
-                    atkGroup.length > 0
-                  ) {
-                    return atkGroupNames().length > 0
-                      ? atkGroupNames().join(" / ")
-                      : atkGroup
-                          .map((v) =>
-                            shipNameFromIndex(
-                              ev.attackerSide,
-                              Number(v),
-                              props.fleets,
-                            ),
-                          )
-                          .join(" / ");
-                  }
-                  return "-";
-                });
-                const defShort = createMemo(() =>
-                  defIdx !== null
-                    ? shipNameFromIndex(ev.defenderSide, defIdx, props.fleets)
-                    : "対象なし",
-                );
-                const atkColor =
-                  ev.attackerSide === "friend" ? "#3b82f6" : "#ef4444";
-                const defColor =
-                  defIdx === null
-                    ? "#64748b"
-                    : ev.defenderSide === "friend"
-                      ? "#3b82f6"
-                      : "#ef4444";
-                const friendlyForceHp = createMemo(() => {
-                  if (ev.actorRole !== "friendly_force") return null;
-                  const now = ev.attackerNowHp;
-                  const max = ev.attackerMaxHp;
-                  if (now == null || max == null || max <= 0) return null;
-                  return `${now}/${max}`;
-                });
-
-                const topBorder = () =>
-                  phaseChanged() && i() > 0
-                    ? "border-t-2 border-t-slate-400/45"
-                    : "border-t border-t-base-300/20";
-
-                const ciItems = Array.isArray(ev.slotItems)
-                  ? ev.slotItems.filter((id) => Number(id) > 0)
-                  : [];
-                const visibleCiItems =
-                  ev.actorRole === "airbase" ? ciItems : ciItems.slice(0, 3);
-
-                return (
-                  <Show
-                    when={!isSep}
-                    fallback={<div style={{ height: `${ROW_H}px` }} />}
-                  >
-                    <div
-                      class={`flex items-center gap-1.5 ${topBorder()} transition-all duration-100 min-w-0`}
-                      style={{
-                        height: `${ROW_H}px`,
-                        overflow: "hidden",
-                        "background-color":
-                          hoveredStep() === i()
-                            ? "rgba(59, 130, 246, 0.08)"
-                            : undefined,
-                        transform:
-                          hoveredStep() === i() ? "translateX(2px)" : undefined,
-                      }}
-                      onMouseEnter={() => setHoveredStep(i())}
-                      onMouseLeave={() => setHoveredStep(null)}
-                    >
-                      <Show when={phaseChanged()}>
-                        <div class="shrink-0 flex items-center gap-1">
-                          <span class="rounded bg-base-200 px-1.5 py-0.5 text-[9px] font-semibold text-base-content/70">
-                            {ev.phase}
+              <div>
+                <For each={rows()}>
+                  {(r, ri) => {
+                    const g = () => layout().geom[ri()]!;
+                    if (r.isPhaseHeader) {
+                      const night = isNightPhase(r.phase);
+                      return (
+                        <div
+                          style={{ height: `${g().baseH}px` }}
+                          class={`flex items-center gap-2 px-2 border-t border-base-300/60 rounded-sm ${
+                            night ? "bg-indigo-500/10" : "bg-base-200/70"
+                          }`}
+                        >
+                          <span
+                            class={`text-[11px] font-semibold ${
+                              night ? "text-indigo-400" : "text-base-content"
+                            }`}
+                          >
+                            {r.phase}
                           </span>
-                          <Show when={legacyAirbasePhases().has(ev.phase)}>
-                            <span class="rounded bg-warning/20 px-1.5 py-0.5 text-[9px] font-semibold text-warning-content/90 border border-warning/50">
+                          <Show when={r.isLegacyAirbase}>
+                            <span class="rounded bg-warning/20 px-1.5 py-0.5 text-[9px] font-semibold text-warning border border-warning/40">
                               基地航空隊: 未解決の可能性
                             </span>
                           </Show>
                         </div>
-                      </Show>
-                      <span
-                        class="shrink-0 font-bold text-[10px] tabular-nums"
-                        style={{ color: atkColor }}
+                      );
+                    }
+
+                    const isSel = () => selectedRow() === ri();
+                    const isHov = () => hoveredRow() === ri();
+                    const isRel = () => rowTouchesShip(r, selectedShip());
+                    const eqMetas = createMemo(() =>
+                      r.slotIds
+                        .map((id) => slotItemMeta(id, props.mstSlotItemById))
+                        .filter((m) => m.name),
+                    );
+
+                    return (
+                      <div
+                        class="grid grid-cols-[142px_16px_196px_minmax(0,1fr)] items-center gap-x-2 px-1.5 border-t border-base-300/40 text-xs cursor-pointer transition-colors"
+                        style={{
+                          height: `${g().baseH}px`,
+                          "background-color": isSel()
+                            ? "rgba(78, 168, 255, 0.18)"
+                            : isHov()
+                              ? "rgba(78, 168, 255, 0.10)"
+                              : isRel()
+                                ? "rgba(62, 207, 142, 0.14)"
+                                : undefined,
+                          "box-shadow": isSel()
+                            ? "inset 3px 0 0 #4ea8ff"
+                            : isRel()
+                              ? "inset 3px 0 0 #3ecf8e"
+                              : undefined,
+                        }}
+                        onMouseEnter={() => setHoveredRow(ri())}
+                        onMouseLeave={() => setHoveredRow(null)}
+                        onClick={() => toggleRow(ri())}
                       >
-                        {atkLabel()}
-                      </span>
-                      <span
-                        class="min-w-0 max-w-28 shrink text-[9px] opacity-55 truncate whitespace-nowrap"
-                        title={atkShort()}
-                      >
-                        {atkShort()}
-                      </span>
-                      <Show when={friendlyForceHp() !== null}>
-                        <span class="shrink-0 text-[9px] text-warning/90">
-                          友軍HP {friendlyForceHp()}
+                        {/* Attackers (all shown, stacked cleanly when multiple) */}
+                        <div class="flex flex-col justify-center min-w-0">
+                          <For each={r.attackers}>
+                            {(a) => (
+                              <div
+                                class="flex items-center gap-1.5 min-w-0"
+                                style={{ height: `${LINE_H}px` }}
+                              >
+                                <span
+                                  class={`font-mono tabular-nums text-[10px] font-semibold w-8 shrink-0 ${a.toneClass}`}
+                                >
+                                  {a.pos}
+                                </span>
+                                <span
+                                  class="text-[11px] truncate text-base-content"
+                                  title={a.name}
+                                >
+                                  {a.name}
+                                </span>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+
+                        {/* Arrow (vertically centered) */}
+                        <span class="text-center text-[10px] font-mono text-base-content/35">
+                          →
                         </span>
-                      </Show>
-                      <span class="text-[9px] text-base-content/30 shrink-0">
-                        →
-                      </span>
-                      <span
-                        class="shrink-0 font-bold text-[10px] tabular-nums"
-                        style={{ color: defColor }}
-                      >
-                        {defLabel}
-                      </span>
-                      <span
-                        class="min-w-0 max-w-28 shrink text-[9px] opacity-55 truncate whitespace-nowrap"
-                        title={defShort()}
-                      >
-                        {defShort()}
-                      </span>
-                      <Show
-                        when={ev.damage > 0}
-                        fallback={
-                          <span
-                            class="font-mono text-[9px] text-base-content/30"
-                            style={{
-                              "min-width": "52px",
-                              display: "inline-block",
-                              "text-align": "right",
-                            }}
-                          >
-                            MISS
-                          </span>
-                        }
-                      >
-                        <span
-                          class={`font-mono tabular-nums ${
-                            ev.crit
-                              ? "font-bold text-[12px]"
-                              : "font-semibold text-[11px]"
-                          }`}
-                          style={{
-                            color: ev.crit ? "#f97316" : defColor,
-                            "min-width": "52px",
-                            display: "inline-block",
-                            "text-align": "right",
-                          }}
+
+                        {/* Defenders + individual Damages (1:1 aligned, all shown) */}
+                        <div class="flex flex-col justify-center min-w-0">
+                          <For each={r.defenders}>
+                            {(d) => (
+                              <div
+                                class="grid grid-cols-[136px_54px] items-center gap-x-1.5 min-w-0"
+                                style={{ height: `${LINE_H}px` }}
+                              >
+                                <div class="flex items-center gap-1.5 min-w-0">
+                                  <span
+                                    class={`font-mono tabular-nums text-[10px] font-semibold w-8 shrink-0 ${d.toneClass}`}
+                                  >
+                                    {d.pos}
+                                  </span>
+                                  <span
+                                    class="text-[11px] truncate text-base-content"
+                                    title={d.name}
+                                  >
+                                    {d.name}
+                                  </span>
+                                </div>
+                                <div class="text-right font-mono tabular-nums shrink-0">
+                                  <Show
+                                    when={d.damage > 0}
+                                    fallback={
+                                      <span class="text-[10px] text-base-content/35">
+                                        MISS
+                                      </span>
+                                    }
+                                  >
+                                    <span
+                                      class={
+                                        d.crit
+                                          ? "text-[12px] font-bold text-error"
+                                          : "text-[11px] font-semibold text-base-content"
+                                      }
+                                    >
+                                      -{d.damage}
+                                    </span>
+                                  </Show>
+                                </div>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+
+                        {/* Equipment icons + primary name */}
+                        <div
+                          class="flex items-center gap-1 min-w-0 overflow-hidden"
+                          title={eqMetas()
+                            .map((m) => m.name)
+                            .join(" / ")}
                         >
-                          -{ev.damage}
-                        </span>
-                      </Show>
-                      <Show when={visibleCiItems.length > 0}>
-                        <span class="inline-flex shrink-0 items-center gap-0.5 text-[9px]">
-                          <EquipmentBadgesFromSlotIds
-                            slotIds={visibleCiItems}
-                            mstSlotItemById={props.mstSlotItemById}
-                            preserveDuplicates={ev.actorRole === "airbase"}
-                          />
-                        </span>
-                      </Show>
-                    </div>
-                  </Show>
-                );
-              }}
-            </For>
+                          <Show
+                            when={eqMetas().length > 0}
+                            fallback={
+                              <span class="text-[10px] text-base-content/35">
+                                -
+                              </span>
+                            }
+                          >
+                            <span class="inline-flex items-center gap-0.5 shrink-0">
+                              <For each={eqMetas().slice(0, 3)}>
+                                {(meta) => (
+                                  <WeaponIcon iconType={meta.iconType} />
+                                )}
+                              </For>
+                            </span>
+                            <span class="text-[10.5px] truncate text-base-content/65">
+                              {eqMetas()[0]?.name}
+                              {eqMetas().length > 1
+                                ? ` +${eqMetas().length - 1}`
+                                : ""}
+                            </span>
+                          </Show>
+                        </div>
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
+            </div>
           </div>
         </div>
       </div>

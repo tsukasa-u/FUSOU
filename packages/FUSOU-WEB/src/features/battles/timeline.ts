@@ -958,6 +958,16 @@ export function buildTimelineEvents(
         );
       });
     }
+    // Opening air attack (before support & opening ASW in canonical battle flow)
+    if (battle["opening_air_attack"]) {
+      const raw = battle["opening_air_attack"];
+      const airRow = Array.isArray(raw) ? unknownArrayOf(raw)[0] : raw;
+      if (airRow) {
+        extractAirAttackEvents(airRow, phaseName("OpeningAirAttack"), undefined, {
+          airBatchId: ++airBatchSeq,
+        });
+      }
+    }
     // Support attack
     const sa = jsonRecordOf(battle["support_attack"]) ?? battle;
     const hourai = jsonRecordOf(sa["support_hourai"]);
@@ -1019,79 +1029,12 @@ export function buildTimelineEvents(
         );
       }
     }
-    const night = normalizeNightSupportAttack(battle);
-    const nightHourai = jsonRecordOf(night?.["hourai"]);
-    if (nightHourai?.["damage"]) {
-      const hourai = nightHourai;
-      const dmgs = unknownArrayOf(hourai["damage"]);
-      const eNow = nullableNumberArray(hourai["now_hps"]);
-      const shipIds = unknownArrayOf(hourai["ship_id"]);
-      const cls = unknownArrayOf(hourai["cl_list"]);
-      for (let i = 0; i < dmgs.length; i++) {
-        const dmg = safeNumberOrNull(dmgs[i]);
-        if (dmg === null || dmg < 0) continue;
-        const beforeHp = eNow[i] ?? null;
-        events.push({
-          phase: phaseName("NightSupportAttack"),
-          type: "shelling",
-          actorRole: "support",
-          affectsHp: false,
-          attackerSide: "friend",
-          attackerIdx: null,
-          attackerGroup: [],
-          defenderSide: "enemy",
-          defenderIdx: i,
-            damage: dmg,
-            crit: safeNumber(cls[i]) >= 2,
-          sunk: beforeHp !== null && Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
-          slotItems: [],
-          fHps: [],
-          eHps: eNow,
-          ...(safeNumberOrNull(shipIds[i]) !== null && safeNumber(shipIds[i]) > 0
-            ? { attackerMstShipId: safeNumber(shipIds[i]) }
-            : {}),
-        });
-      }
-    }
-    const nightAir = jsonRecordOf(night?.["airatack"]);
-    if (nightAir?.["e_damage"]) {
-      const ed = jsonRecordOf(nightAir["e_damage"]);
-      const fd = jsonRecordOf(nightAir["f_damage"]);
-      if (ed) {
-        extractAirAttackEvents(
-          {
-            e_damages: ed["damages"],
-            f_damages: fd?.["damages"],
-            e_now_hps: ed["now_hps"],
-            f_now_hps: fd?.["now_hps"],
-            e_plane_from: [],
-            f_plane_from: [],
-          },
-          phaseName("NightSupportAttack"),
-          undefined,
-          {
-            actorRole: "support",
-            affectsHp: false,
-            airBatchId: ++airBatchSeq,
-          },
-        );
-      }
-    }
-    // Main battle phases
+    // Main day battle phases
     if (battle["opening_taisen"]) {
       extractShellingEvents(
         normalizeShellingRows(battle["opening_taisen"]),
         phaseName("OpeningTaisen"),
       );
-    }
-    if (battle["opening_air_attack"]) {
-      const raw = battle["opening_air_attack"];
-      const airRow = Array.isArray(raw) ? unknownArrayOf(raw)[0] : raw;
-      if (airRow) {
-        extractAirAttackEvents(airRow, phaseName("OpeningAirAttack"), undefined, {
-          airBatchId: ++airBatchSeq,
-        });
-      }
     }
     if (battle["opening_raigeki"]) {
       extractRaigekiEvents(
@@ -1116,7 +1059,7 @@ export function buildTimelineEvents(
         phaseName("ClosingRaigeki"),
       );
     }
-    // Friendly force attack (after day battle, before midnight)
+    // Friendly force attack (after day battle, before night support / midnight)
     const ffaFallback = jsonRecordOf(battle["friendly_force_attack"]);
     const fallbackFleetInfo = jsonRecordOf(ffaFallback?.["fleet_info"]);
     const fallbackSupportHourai = jsonRecordOf(ffaFallback?.["support_hourai"]);
@@ -1166,6 +1109,65 @@ export function buildTimelineEvents(
           }
         }
         }
+      }
+    }
+    // Night support attack (immediately before midnight hougeki)
+    const night = normalizeNightSupportAttack(battle);
+    const nightHourai = jsonRecordOf(night?.["hourai"]);
+    if (nightHourai?.["damage"]) {
+      const hourai = nightHourai;
+      const dmgs = unknownArrayOf(hourai["damage"]);
+      const eNow = nullableNumberArray(hourai["now_hps"]);
+      const shipIds = unknownArrayOf(hourai["ship_id"]);
+      const cls = unknownArrayOf(hourai["cl_list"]);
+      for (let i = 0; i < dmgs.length; i++) {
+        const dmg = safeNumberOrNull(dmgs[i]);
+        if (dmg === null || dmg < 0) continue;
+        const beforeHp = eNow[i] ?? null;
+        events.push({
+          phase: phaseName("NightSupportAttack"),
+          type: "shelling",
+          actorRole: "support",
+          affectsHp: false,
+          attackerSide: "friend",
+          attackerIdx: null,
+          attackerGroup: [],
+          defenderSide: "enemy",
+          defenderIdx: i,
+          damage: dmg,
+          crit: safeNumber(cls[i]) >= 2,
+          sunk: beforeHp !== null && Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+          slotItems: [],
+          fHps: [],
+          eHps: eNow,
+          ...(safeNumberOrNull(shipIds[i]) !== null && safeNumber(shipIds[i]) > 0
+            ? { attackerMstShipId: safeNumber(shipIds[i]) }
+            : {}),
+        });
+      }
+    }
+    const nightAir = jsonRecordOf(night?.["airatack"]);
+    if (nightAir?.["e_damage"]) {
+      const ed = jsonRecordOf(nightAir["e_damage"]);
+      const fd = jsonRecordOf(nightAir["f_damage"]);
+      if (ed) {
+        extractAirAttackEvents(
+          {
+            e_damages: ed["damages"],
+            f_damages: fd?.["damages"],
+            e_now_hps: ed["now_hps"],
+            f_now_hps: fd?.["now_hps"],
+            e_plane_from: [],
+            f_plane_from: [],
+          },
+          phaseName("NightSupportAttack"),
+          undefined,
+          {
+            actorRole: "support",
+            affectsHp: false,
+            airBatchId: ++airBatchSeq,
+          },
+        );
       }
     }
     // Midnight phase (last)
