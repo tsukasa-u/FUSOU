@@ -27,7 +27,6 @@ import type { MasterDataJsonResponse } from "@/features/simulator/api-response-s
 // but for SPA we can just import them directly.
 import BattlesListPanel from "../../stats/solid/BattlesListPanel";
 import BattleMapFlowPanel from "../../map-flow/solid/BattleMapFlowPanel";
-import BattleStatsPanel from "../../stats/solid/BattleStatsPanel";
 import BattleDetailPanel, {
   type BattleDetailLoadStatus,
 } from "../../battle-detail/solid/BattleDetailPanel";
@@ -185,7 +184,7 @@ export default function BattlesDashboard(props: {
     ? props.localLimits.maxQueryRecords
     : 20000;
 
-  const [activeTab, setActiveTab] = createSignal<"list" | "detail" | "map-flow" | "stats" | "drops">("list");
+  const [activeTab, setActiveTab] = createSignal<"list" | "detail" | "map-flow" | "drops">("list");
   const [selectedDetailId, setSelectedDetailId] = createSignal("");
   const [selectedDatasetId, setSelectedDatasetId] = createSignal("");
   const [selectedBattleIndex, setSelectedBattleIndex] = createSignal<number | null>(null);
@@ -354,7 +353,7 @@ export default function BattlesDashboard(props: {
 
 
   const datasetKindForTab = (
-    tab: "list" | "detail" | "map-flow" | "stats" | "drops",
+    tab: "list" | "detail" | "map-flow" | "drops",
   ): "overview" | "drops" | null => {
     if (tab === "detail") return null;
     if (tab === "drops") return "drops";
@@ -649,8 +648,8 @@ export default function BattlesDashboard(props: {
   onMount(() => {
     const handleNavigateTab = (e: Event) => {
       const customEvent = e as CustomEvent<string>;
-      if (customEvent.detail && ["overview", "list", "map-flow", "stats", "drops"].includes(customEvent.detail)) {
-        setActiveTab(customEvent.detail as "list" | "detail" | "map-flow" | "stats" | "drops");
+      if (customEvent.detail && ["list", "detail", "map-flow", "drops"].includes(customEvent.detail)) {
+        setActiveTab(customEvent.detail as "list" | "detail" | "map-flow" | "drops");
       }
     };
     window.addEventListener("fusou:navigate-tab", handleNavigateTab);
@@ -661,7 +660,11 @@ export default function BattlesDashboard(props: {
     const applyUrlState = (urlStr: string) => {
       const url = new URL(urlStr, window.location.origin);
       const params = url.searchParams;
-      const tab = params.get("tab") as "list" | "detail" | "map-flow" | "stats" | "drops" | null;
+      const rawTab = params.get("tab");
+      const tab =
+        rawTab && ["list", "detail", "map-flow", "drops"].includes(rawTab)
+          ? (rawTab as "list" | "detail" | "map-flow" | "drops")
+          : null;
       if (tab) {
         setActiveTab(tab);
       } else {
@@ -717,7 +720,11 @@ export default function BattlesDashboard(props: {
     const initialPeriodTag = params.get("period_tag");
     const initialTableVersion = params.get("table_version");
     applyUrlState(window.location.href);
-    const initialTab = params.get("tab") as "list" | "detail" | "map-flow" | "stats" | "drops";
+    const rawInitialTab = params.get("tab");
+    const initialTab =
+      rawInitialTab && ["list", "detail", "map-flow", "drops"].includes(rawInitialTab)
+        ? (rawInitialTab as "list" | "detail" | "map-flow" | "drops")
+        : "list";
     const initialDetailId = params.get("detail_id");
 
     void (async () => {
@@ -1103,9 +1110,6 @@ export default function BattlesDashboard(props: {
             </Match>
             <Match when={activeTab() === "map-flow"}>
               <BattleMapFlowPanel dashboardState={dashboardState} />
-            </Match>
-            <Match when={activeTab() === "stats"}>
-              <BattleStatsPanel dashboardState={dashboardState} />
             </Match>
             <Match when={activeTab() === "detail"}>
               <BattleDetailPanel

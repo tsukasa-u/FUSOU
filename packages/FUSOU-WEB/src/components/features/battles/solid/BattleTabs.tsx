@@ -1,7 +1,7 @@
 /** @jsxImportSource solid-js */
 import { FusouTabs, type TabItem } from "@/components/common/solid/FusouTabs";
 
-export type TabId = "list" | "detail" | "map-flow" | "stats" | "drops";
+export type TabId = "list" | "detail" | "map-flow" | "drops";
 
 type Props = {
   activeTab: TabId;
@@ -14,7 +14,6 @@ const BATTLE_TABS: readonly TabItem<TabId>[] = [
   { id: "list", label: "一覧" },
   { id: "detail", label: "詳細" },
   { id: "map-flow", label: "マップ進行" },
-  { id: "stats", label: "統計" },
   { id: "drops", label: "ドロップ" },
 ] as const;
 

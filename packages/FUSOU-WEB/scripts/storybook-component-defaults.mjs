@@ -150,9 +150,6 @@ export const componentStorybookDefaults = {
     searchQuery: storybookAccessor(""),
     activeFilterCount: 0,
   },
-  BattleStatsPanel: {
-    dashboardState: storybookFixtureMarkers.dashboardState,
-  },
   BattleTimelineView: {
     battle: storybookFixtureMarkers.battleViewBattle,
     fleets: storybookFixtureMarkers.battleViewFleets,

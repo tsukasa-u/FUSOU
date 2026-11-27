@@ -144,7 +144,7 @@ export function createStorybookDashboardState(): SharedDashboardState {
   const mstShips = parseMasterShipRecords(STORYBOOK_SAMPLE_BATTLE_SHIPS);
   const mstSlotItems = parseMasterSlotItemRecords(STORYBOOK_SAMPLE_SLOT_ITEMS);
   const [activeTab, setActiveTab] =
-    createSignal<"list" | "detail" | "map-flow" | "stats" | "drops">("list");
+    createSignal<"list" | "detail" | "map-flow" | "drops">("list");
   const [selectedPeriod] = createSignal(periods[0] ?? null);
   const [loadingPeriods] = createSignal(false);
   const [loading] = createSignal(false);

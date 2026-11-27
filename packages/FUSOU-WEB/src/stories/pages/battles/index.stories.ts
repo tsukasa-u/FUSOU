@@ -34,11 +34,6 @@ export const MapFlow = {
   parameters: pageState({ query: { tab: "map-flow" } }),
 };
 
-export const Statistics = {
-  args: {},
-  parameters: pageState({ query: { tab: "stats" } }),
-};
-
 export const Drops = {
   args: {},
   parameters: pageState({ query: { tab: "drops" } }),
@@ -70,18 +65,6 @@ export const TutorialGuide = {
     await waitFor(() => {
       expect(canvas.getByRole("dialog")).toBeVisible();
     });
-  },
-};
-
-export const LegacyStatsRoute = {
-  args: {},
-  parameters: {
-    ...pageState({ query: { tab: "stats" } }),
-    docs: {
-      description: {
-        story: "The legacy /battles/stats route resolves to the Statistics state.",
-      },
-    },
   },
 };
 

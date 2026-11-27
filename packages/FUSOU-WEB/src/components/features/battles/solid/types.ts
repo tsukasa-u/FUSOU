@@ -22,8 +22,8 @@ export type MasterDataStatusItem = {
 };
 
 export type SharedDashboardState = {
-  activeTab: () => "list" | "detail" | "map-flow" | "stats" | "drops";
-  setActiveTab: (tab: "list" | "detail" | "map-flow" | "stats" | "drops") => void;
+  activeTab: () => "list" | "detail" | "map-flow" | "drops";
+  setActiveTab: (tab: "list" | "detail" | "map-flow" | "drops") => void;
   
   selectedPeriod: () => PeriodSummary | null;
   periods: () => PeriodSummary[];
