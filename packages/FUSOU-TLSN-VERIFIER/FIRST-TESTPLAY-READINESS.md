@@ -1,5 +1,13 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Candidate CI Ubuntu package sources — 2026-11-27
+
+Hosted run [#148](https://github.com/tsukasa-u/FUSOU/actions/runs/45968849206)
+failed in APP preflight before compilation. The runner's Microsoft Ubuntu
+repository returned HTTP 403 during `apt-get update`. The candidate workflow
+installs its Ubuntu build and test packages using the image's Ubuntu sources
+explicitly. The requested packages, Clang pin and test steps are unchanged.
+
 ## Signed retirement of an unconfirmed Freshness issue — 2026-11-27
 
 Read-only Cloudflare SQLite queries found exactly one issue with
