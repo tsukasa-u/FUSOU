@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 import { LoadingState } from "@/components/common/solid/LoadingState";
+import { FusouTabs, type TabItem } from "@/components/common/solid/FusouTabs";
 import {
   createSignal,
   createMemo,
@@ -40,7 +41,10 @@ import {
   parseMstSlotItemMap,
 } from "@/features/battles/data-service";
 import { bannerUrl } from "@/features/simulator/equip-calc";
-import { EquipmentBadge, ShipBanner, ShipRows, slotItemMeta } from "./ui";
+import { ShipBanner } from "./ui";
+import BattleFleetFormation, {
+  type AirBaseFormation,
+} from "./BattleFleetFormation";
 import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
 import BattleDisplaySettingsModal from "./BattleDisplaySettingsModal";
@@ -160,11 +164,6 @@ type BattleOverviewPayload = {
   battles?: Array<Record<string, unknown>>;
 };
 
-type AirBaseFormation = {
-  baseNo: number | null;
-  slotItemIds: number[];
-};
-
 function toPositiveNumberArray(value: unknown): number[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -234,8 +233,147 @@ function parseFleetRecords(
       soukou: normalizeNullableNumber(row["soukou"]),
       bannerUrl: String(row["bannerUrl"] ?? ""),
       equipments: parseEquipmentInfos(row["equipments"], mstSlotItemMap),
+      ...(row["escaped"] === true ? { escaped: true } : {}),
     };
   });
+}
+
+function resolveEscapedShipIndices(battle: Record<string, unknown> | null): Set<number> {
+  const escaped = new Set<number>();
+  if (!battle) return escaped;
+  const raw = battle["f_escape_idx"] ?? battle["escape_idx"];
+  if (!Array.isArray(raw)) return escaped;
+  // Support both boolean flags ([false, true, ...]) and integer index lists ([1, 6])
+  if (raw.some((v) => typeof v === "boolean")) {
+    raw.forEach((v, idx) => {
+      if (v === true) escaped.add(idx);
+    });
+    return escaped;
+  }
+  const nums = raw
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v) && v >= 0);
+  // KanColle api_escape_idx is 1-based when all values >= 1; FUSOU internal arrays may be 0-based.
+  const isOneBased = nums.length > 0 && nums.every((n) => n >= 1) && battle["api_escape_idx"] !== undefined;
+  for (const n of nums) {
+    escaped.add(isOneBased ? n - 1 : n);
+  }
+  return escaped;
+}
+
+function resolveSupportShips(
+  battle: Record<string, unknown> | null,
+  mstShipMap: Map<number, MstShipRecord> | null,
+): ShipInfo[] {
+  if (!battle) return [];
+  const candidates = [
+    jsonRecordOf(jsonRecordOf(battle["support_attack"])?.["support_hourai"]),
+    jsonRecordOf(jsonRecordOf(battle["support_attack"])?.["support_airatack"]),
+    jsonRecordOf(battle["support_hourai"]),
+    jsonRecordOf(battle["support_airattack"]),
+    jsonRecordOf(jsonRecordOf(battle["night_support_attack"])?.["hourai"]),
+    jsonRecordOf(battle["night_support_hourai"]),
+  ];
+  const shipIds: number[] = [];
+  for (const rec of candidates) {
+    if (!rec) continue;
+    const rawIds = rec["ship_id"] ?? rec["f_ship_id"] ?? rec["deck_ship_ids"];
+    if (!Array.isArray(rawIds)) continue;
+    for (const rawId of rawIds) {
+      const id = Number(rawId);
+      if (Number.isFinite(id) && id > 0 && !shipIds.includes(id)) {
+        shipIds.push(id);
+      }
+    }
+    if (shipIds.length > 0) break;
+  }
+  return shipIds.map((shipId) => {
+    const mst = mstShipMap?.get(shipId);
+    const name =
+      mst && typeof mst["name"] === "string" && mst["name"]
+        ? mst["name"]
+        : `艦ID:${shipId}`;
+    return {
+      name,
+      shipId,
+      level: null,
+      nowhp: null,
+      maxhp: null,
+      karyoku: null,
+      raisou: null,
+      taiku: null,
+      soukou: null,
+      bannerUrl: bannerUrl(shipId, { f: "auto" }),
+      equipments: [],
+    };
+  });
+}
+
+function resolveFriendlyForceShips(
+  battle: Record<string, unknown> | null,
+  mstShipMap: Map<number, MstShipRecord> | null,
+  mstSlotItemMap: Map<number, MstSlotItemRecord> | null,
+): ShipInfo[] {
+  if (!battle) return [];
+  const ffa = jsonRecordOf(battle["friendly_force_attack"]);
+  const fleetInfo = jsonRecordOf(ffa?.["fleet_info"]);
+  if (!fleetInfo) return [];
+  const shipIds = Array.isArray(fleetInfo["ship_id"])
+    ? fleetInfo["ship_id"]
+    : Array.isArray(fleetInfo["mst_ship_id"])
+      ? fleetInfo["mst_ship_id"]
+      : [];
+  const nowHps = Array.isArray(fleetInfo["now_hps"]) ? fleetInfo["now_hps"] : [];
+  const maxHps = Array.isArray(fleetInfo["max_hps"]) ? fleetInfo["max_hps"] : [];
+  const levels = Array.isArray(fleetInfo["lv"]) ? fleetInfo["lv"] : [];
+  const slots = Array.isArray(fleetInfo["slot"]) ? fleetInfo["slot"] : [];
+  const params = Array.isArray(fleetInfo["param"]) ? fleetInfo["param"] : [];
+
+  const ships: ShipInfo[] = [];
+  for (let i = 0; i < shipIds.length; i += 1) {
+    const shipId = Number(shipIds[i]);
+    if (!Number.isFinite(shipId) || shipId <= 0) continue;
+    const mst = mstShipMap?.get(shipId);
+    const name =
+      mst && typeof mst["name"] === "string" && mst["name"]
+        ? mst["name"]
+        : `艦ID:${shipId}`;
+    const rawSlot = Array.isArray(slots[i]) ? (slots[i] as unknown[]) : [];
+    const equipments: EquipmentInfo[] = rawSlot
+      .map((s) => Number(s))
+      .filter((id) => Number.isFinite(id) && id > 0)
+      .map((slotItemId) => {
+        const slotMst = mstSlotItemMap?.get(slotItemId);
+        const iconType =
+          slotMst && Array.isArray(slotMst["type"]) && slotMst["type"][3] != null
+            ? Number(slotMst["type"][3])
+            : null;
+        return {
+          name:
+            slotMst && typeof slotMst["name"] === "string" && slotMst["name"]
+              ? slotMst["name"]
+              : `装備#${slotItemId}`,
+          level: null,
+          iconType,
+          slotItemId,
+        };
+      });
+    const statRow = Array.isArray(params[i]) ? (params[i] as unknown[]) : [];
+    ships.push({
+      name,
+      shipId,
+      level: toNullableNumber(levels[i]),
+      nowhp: normalizeNullableNumber(nowHps[i]),
+      maxhp: normalizeNullableNumber(maxHps[i]),
+      karyoku: normalizeNullableNumber(statRow[0]),
+      raisou: normalizeNullableNumber(statRow[1]),
+      taiku: normalizeNullableNumber(statRow[2]),
+      soukou: normalizeNullableNumber(statRow[3]),
+      bannerUrl: bannerUrl(shipId, { f: "auto" }),
+      equipments,
+    });
+  }
+  return ships;
 }
 
 function resolveAirBaseFormations(
@@ -660,19 +798,19 @@ export default function BattleDetailPanel(props: {
   });
 
   const airBaseFormations = createMemo(() => resolveAirBaseFormations(battle()));
-  const hasAirBaseStrikeFormations = createMemo(
-    () => airBaseFormations().length > 0,
+  const friendlyShipsWithEscape = createMemo(() => {
+    const ships = fleets()?.friendlyShips ?? [];
+    const escapedIndices = resolveEscapedShipIndices(battle());
+    if (escapedIndices.size === 0) return ships;
+    return ships.map((ship, idx) =>
+      escapedIndices.has(idx) ? { ...ship, escaped: true } : ship,
+    );
+  });
+  const supportShips = createMemo(() =>
+    resolveSupportShips(battle(), mstShipById()),
   );
-
-  const FleetFallback = (props: { emptyLabel: string }) => (
-    <div class="flex items-center justify-center py-6 text-base-content/40">
-      <Show
-        when={loading()}
-        fallback={<span class="text-sm">{props.emptyLabel}</span>}
-      >
-        <LoadingState message="艦隊データ読込中…" size="sm" />
-      </Show>
-    </div>
+  const friendlyForceShips = createMemo(() =>
+    resolveFriendlyForceShips(battle(), mstShipById(), mstSlotItemById()),
   );
 
   // ── Data loading ──────────────────────────────────────────────────
@@ -1244,26 +1382,27 @@ export default function BattleDetailPanel(props: {
   return (
     <div class="max-w-[1280px] mx-auto px-4 pt-2 pb-8">
       <Show when={selectableBattleIndexes().length > 1}>
-        <div class="mb-3 overflow-x-auto">
-          <div class="tabs tabs-boxed inline-flex flex-nowrap">
-            <For each={selectableBattleIndexes()}>
-              {(idx, order) => (
-                <button
-                  type="button"
-                  class={`tab tab-sm ${idx === activeBattleIndex() ? "tab-active" : ""}`}
-                  onClick={() => {
-                    if (idx === activeBattleIndex()) return;
-                    setSwitchingBattleIndex(idx);
-                    props.onBattleIndexChange?.(idx);
-                  }}
-                >
-                  {order() + 1}戦目
-                </button>
-              )}
-            </For>
+        <div class="mb-4 flex items-center gap-3">
+          <div class="flex-1 min-w-0">
+            <FusouTabs<string>
+              tabs={selectableBattleIndexes().map<TabItem<string>>((idx, order) => ({
+                id: String(idx),
+                label: `${order + 1}戦目`,
+              }))}
+              activeTab={String(activeBattleIndex())}
+              onTabChange={(id) => {
+                const idx = Number(id);
+                if (!Number.isFinite(idx) || idx === activeBattleIndex()) return;
+                setSwitchingBattleIndex(idx);
+                props.onBattleIndexChange?.(idx);
+              }}
+              class="mb-0"
+              tabIdPrefix="battle-sortie-step"
+              ariaLabel="戦目切り替え"
+            />
           </div>
           <Show when={switchingBattleIndex() !== null}>
-            <span class="ml-2 text-xs text-base-content/60 inline-flex items-center gap-1.5 align-middle">
+            <span class="text-xs text-base-content/60 inline-flex items-center gap-1.5 shrink-0">
               <span class="loading loading-spinner loading-xs" />
               読込中...
             </span>
@@ -1309,176 +1448,101 @@ export default function BattleDetailPanel(props: {
       <Show when={battle()}>
         {(b) => (
           <>
-            {/* Battle Header */}
+            {/* Unified Battle Header (Details + Formation + Air State + Result) */}
             <div class="fusou-card mb-6">
-              <div class="fusou-card-body">
-                <h2 class="card-title">戦闘詳細</h2>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                  <div class="rounded bg-base-200 px-3 py-2">
-                    <div class="text-[11px] text-base-content/55">日時</div>
-                    <div class="font-semibold">{ts()}</div>
+              <div class="fusou-card-body space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <h2 class="card-title text-lg">戦闘詳細</h2>
+                  <div class="flex items-center gap-2 text-sm">
+                    <span class="text-xs text-base-content/55">戦闘結果</span>
+                    <span class={`text-xl font-bold font-mono leading-none ${rankCls()}`}>
+                      {rank()}
+                    </span>
                   </div>
-                  <div class="rounded bg-base-200 px-3 py-2 min-w-0">
-                    <div class="text-[11px] text-base-content/55">海域</div>
+                </div>
+
+                {/* Primary metadata (borderless) */}
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+                  <div>
+                    <div class="text-[11px] text-base-content/55 mb-0.5">日時</div>
+                    <div class="font-semibold tabular-nums">{ts()}</div>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="text-[11px] text-base-content/55 mb-0.5">海域</div>
                     <div class="font-semibold break-words">{mapText()}</div>
                   </div>
-                  <div class="rounded bg-base-200 px-3 py-2">
-                    <div class="text-[11px] text-base-content/55">セル</div>
+                  <div>
+                    <div class="text-[11px] text-base-content/55 mb-0.5">セル</div>
                     <div class="font-semibold">{cellLabel()}</div>
                   </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Formation & Air State & Result */}
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <div class="fusou-card">
-                <div class="p-4">
-                  <h3 class="font-bold text-sm text-base-content/60">陣形</h3>
-                  <div class="flex gap-4">
-                    <div>
-                      <span class="text-xs text-base-content/40">味方</span>
-                      <p class="text-lg font-bold">{formations().f}</p>
-                    </div>
-                    <div>
-                      <span class="text-xs text-base-content/40">敵</span>
-                      <p class="text-lg font-bold">{formations().e}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <Show when={airInfo()}>
-                {(air) => (
-                  <div class="fusou-card">
-                    <div class="p-4">
-                      <h3 class="font-bold text-sm text-base-content/60">制空</h3>
-                      <p class={`text-lg font-bold ${air().cls}`}>{air().label}</p>
+                {/* Formation, Air State, Drop (borderless) */}
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm pt-3 border-t border-base-300/60">
+                  <div>
+                    <div class="text-[11px] text-base-content/55 mb-0.5">陣形</div>
+                    <div class="flex items-baseline gap-2.5 flex-wrap">
+                      <span class="inline-flex items-baseline gap-1.5">
+                        <span class="text-[11px] text-info">味方</span>
+                        <span class="font-semibold">{formations().f}</span>
+                      </span>
+                      <span class="text-base-content/35 text-xs">vs</span>
+                      <span class="inline-flex items-baseline gap-1.5">
+                        <span class="text-[11px] text-error">敵</span>
+                        <span class="font-semibold">{formations().e}</span>
+                      </span>
                     </div>
                   </div>
-                )}
-              </Show>
-              <div class="fusou-card">
-                <div class="p-4">
-                  <h3 class="font-bold text-sm text-base-content/60">
-                    戦闘結果
-                  </h3>
-                  <p class={`text-2xl font-bold ${rankCls()}`}>{rank()}</p>
-                  <Show when={dropInfo()}>
-                    {(drop) => (
-                      <div class="mt-2 flex items-center gap-2">
-                        <ShipBanner
-                          src={drop().bannerUrl}
-                          alt={drop().name}
-                          class="h-8 w-28"
-                        />
-                        <div class="min-w-0">
-                          <p class="text-[10px] text-base-content/55">
-                            ドロップ艦
-                          </p>
-                          <p class="truncate text-sm font-medium">
-                            {drop().name}
-                          </p>
+
+                  <div>
+                    <div class="text-[11px] text-base-content/55 mb-0.5">制空</div>
+                    <Show
+                      when={airInfo()}
+                      fallback={<span class="text-xs text-base-content/45">航空戦なし</span>}
+                    >
+                      {(air) => (
+                        <div class={`font-semibold ${air().cls}`}>{air().label}</div>
+                      )}
+                    </Show>
+                  </div>
+
+                  <div>
+                    <div class="text-[11px] text-base-content/55 mb-0.5">ドロップ艦</div>
+                    <Show
+                      when={dropInfo()}
+                      fallback={<span class="text-xs text-base-content/45">なし</span>}
+                    >
+                      {(drop) => (
+                        <div class="flex items-center gap-2 min-w-0">
+                          <ShipBanner
+                            src={drop().bannerUrl}
+                            alt={drop().name}
+                            class="h-6 w-24"
+                          />
+                          <span class="truncate text-xs font-medium">{drop().name}</span>
                         </div>
-                      </div>
-                    )}
-                  </Show>
+                      )}
+                    </Show>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* HP Gauges */}
-            <div
-              class={`grid grid-cols-1 ${hasAirBaseStrikeFormations() ? "lg:grid-cols-3" : "lg:grid-cols-2"} gap-4 mb-6`}
-            >
-              <div class="fusou-card">
-                <div class="p-4">
-                  <h3 class="font-bold text-sm text-base-content/60 mb-2">
-                    味方艦隊
-                  </h3>
-                  <div class="space-y-2">
-                    <Show
-                      when={fleets()?.friendlyShips?.length}
-                      fallback={
-                        <FleetFallback emptyLabel="味方艦隊データなし" />
-                      }
-                    >
-                      <ShipRows
-                        ships={fleets()!.friendlyShips}
-                        sideLabel="味方"
-                      />
-                    </Show>
-                  </div>
-                </div>
-              </div>
-              <div class="fusou-card">
-                <div class="p-4">
-                  <h3 class="font-bold text-sm text-base-content/60 mb-2">
-                    敵艦隊
-                  </h3>
-                  <div class="space-y-2">
-                    <Show
-                      when={fleets()?.enemyShips?.length}
-                      fallback={
-                        <FleetFallback
-                          emptyLabel={
-                            (!battle()?.["e_formation"] || !battle()?.["e_deck_id"])
-                              ? "敵艦隊なし（航空偵察・非戦闘マス）"
-                              : "敵艦隊データなし"
-                          }
-                        />
-                      }
-                    >
-                      <ShipRows ships={fleets()!.enemyShips} sideLabel="敵" />
-                    </Show>
-                  </div>
-                </div>
-              </div>
-              <Show when={hasAirBaseStrikeFormations()}>
-                <div class="fusou-card">
-                  <div class="p-4">
-                    <h3 class="font-bold text-sm text-base-content/60 mb-2">
-                      基地航空隊
-                    </h3>
-                    <div class="space-y-2">
-                      <div class="mb-2 flex flex-wrap gap-2 text-[11px]">
-                        <span class="badge badge-outline">
-                          基地 {airBaseFormations().length}隊
-                        </span>
-                      </div>
-                      <For each={airBaseFormations()}>
-                        {(formation) => (
-                          <div class="rounded-box bg-base-200 p-2">
-                            <div class="text-[11px] text-base-content/60 mb-1 font-semibold">
-                              <Show
-                                when={formation.baseNo != null}
-                                fallback={<span>基地航空隊</span>}
-                              >
-                                第{formation.baseNo}基地
-                              </Show>
-                            </div>
-                            <div class="mt-1 flex flex-wrap gap-1 text-[11px] text-base-content/75">
-                              <For each={formation.slotItemIds}>
-                                {(slotItemId) => {
-                                  const meta = createMemo(() =>
-                                    slotItemMeta(slotItemId, mstSlotItemById()),
-                                  );
-                                  return (
-                                    <EquipmentBadge
-                                      name={meta().name || `装備#${slotItemId}`}
-                                      iconType={meta().iconType}
-                                    />
-                                  );
-                                }}
-                              </For>
-                            </div>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </div>
-                </div>
-              </Show>
-            </div>
+            {/* Fleet Formations (Proposal B: 3-Lane Fixed Comparison) */}
+            <BattleFleetFormation
+              friendlyShips={friendlyShipsWithEscape()}
+              enemyShips={fleets()?.enemyShips ?? []}
+              supportShips={supportShips()}
+              friendlyForceShips={friendlyForceShips()}
+              airBaseFormations={airBaseFormations()}
+              mstSlotItemById={mstSlotItemById()}
+              loading={loading()}
+              enemyEmptyLabel={
+                !battle()?.["e_formation"] || !battle()?.["e_deck_id"]
+                  ? "敵艦隊なし（航空偵察・非戦闘マス）"
+                  : "敵艦隊データなし"
+              }
+            />
 
             {/* Battle Phases / Timeline */}
             <div class="fusou-card">

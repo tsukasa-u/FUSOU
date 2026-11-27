@@ -17,6 +17,8 @@ export interface ShipInfo {
   soukou: number | null;
   bannerUrl: string;
   equipments: EquipmentInfo[];
+  /** Whether the ship has retreated via Fleet Command Facility (退避). */
+  escaped?: boolean;
 }
 
 export interface WeaponIconFrame {
