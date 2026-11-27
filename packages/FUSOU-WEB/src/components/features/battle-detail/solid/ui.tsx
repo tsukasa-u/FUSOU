@@ -1,5 +1,5 @@
 /** @jsxImportSource solid-js */
-import { For, Show } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { JSX } from "solid-js";
 import type {
   BattleFleets,
@@ -14,7 +14,11 @@ import {
   sumNullableNumbers,
 } from "@/features/battles/helpers";
 import { nullableNumberArray } from "@/features/battles/payload-guards";
-import { getWeaponIconCaches } from "@/features/battles/data-service";
+import {
+  getWeaponIconCaches,
+  getWeaponIconFrames,
+  subscribeWeaponIconCaches,
+} from "@/features/battles/data-service";
 
 import { ShipBanner } from "@/components/common/solid/ShipBanner";
 export { ShipBanner };
@@ -92,63 +96,89 @@ function normalizeSlotIds(
 
 // ── JSX components ────────────────────────────────────────────────────────
 
+const [weaponIconVersion, setWeaponIconVersion] = createSignal(0);
+let weaponIconSubscribed = false;
+
+function ensureWeaponIconSubscription(): void {
+  if (weaponIconSubscribed) return;
+  weaponIconSubscribed = true;
+  subscribeWeaponIconCaches(() => {
+    setWeaponIconVersion((v) => v + 1);
+  });
+}
+
 export function WeaponIcon(props: {
   iconType: number | null | undefined;
 }): JSX.Element {
+  ensureWeaponIconSubscription();
+
   const fallback = (
-    <span class="inline-flex h-3.5 w-3.5 items-center justify-center rounded bg-base-300 text-[9px] text-base-content/50">
+    <span class="inline-flex h-3.5 w-3.5 items-center justify-center rounded bg-base-300 text-[9px] text-base-content/50 shrink-0">
       ?
     </span>
   );
   const iconId = () => Number(props.iconType ?? 0);
 
+  onMount(() => {
+    const { frames } = getWeaponIconCaches();
+    if (!frames && iconId() > 0) {
+      void getWeaponIconFrames().catch(() => undefined);
+    }
+  });
+
+  const spriteInfo = createMemo(() => {
+    // Track cache updates reactively so icons replace fallback as soon as frames load.
+    weaponIconVersion();
+    const id = iconId();
+    if (id <= 0) return null;
+    const { frames, meta } = getWeaponIconCaches();
+    const frame = frames?.[id];
+    if (
+      !frame ||
+      frame.w <= 0 ||
+      frame.h <= 0 ||
+      meta.width <= 0 ||
+      meta.height <= 0
+    ) {
+      return null;
+    }
+    const size = 14;
+    const ratioX = size / frame.w;
+    const ratioY = size / frame.h;
+    return {
+      size,
+      width: meta.width * ratioX,
+      height: meta.height * ratioY,
+      marginLeft: -(frame.x * ratioX),
+      marginTop: -(frame.y * ratioY),
+    };
+  });
+
+  const [imgFailed, setImgFailed] = createSignal(false);
+  onCleanup(() => setImgFailed(false));
+
   return (
-    <Show when={iconId() > 0} fallback={fallback}>
-      {(() => {
-        const { frames, meta } = getWeaponIconCaches();
-        const frame = frames?.[iconId()];
-        if (
-          !frame ||
-          frame.w <= 0 ||
-          frame.h <= 0 ||
-          meta.width <= 0 ||
-          meta.height <= 0
-        ) {
-          return fallback;
-        }
-        const size = 14;
-        const ratioX = size / frame.w;
-        const ratioY = size / frame.h;
-        return (
-          <span
-            class="inline-block overflow-hidden rounded align-middle"
-            style={{ width: `${size}px`, height: `${size}px` }}
-          >
-            <img
-              src="/api/asset-sync/weapon-icons"
-              alt=""
-              class="opacity-0 transition-opacity duration-150"
-              style={{
-                display: "block",
-                "max-width": "none",
-                width: `${meta.width * ratioX}px`,
-                height: `${meta.height * ratioY}px`,
-                "margin-left": `-${frame.x * ratioX}px`,
-                "margin-top": `-${frame.y * ratioY}px`,
-              }}
-              onLoad={(e) => {
-                (e.currentTarget as HTMLImageElement).classList.replace(
-                  "opacity-0",
-                  "opacity-100",
-                );
-              }}
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = "none";
-              }}
-            />
-          </span>
-        );
-      })()}
+    <Show when={!imgFailed() ? spriteInfo() : null} fallback={fallback}>
+      {(info) => (
+        <span
+          class="inline-block overflow-hidden rounded align-middle shrink-0"
+          style={{ width: `${info().size}px`, height: `${info().size}px` }}
+        >
+          <img
+            src="/api/asset-sync/weapon-icons"
+            alt=""
+            style={{
+              display: "block",
+              "max-width": "none",
+              width: `${info().width}px`,
+              height: `${info().height}px`,
+              "margin-left": `${info().marginLeft}px`,
+              "margin-top": `${info().marginTop}px`,
+            }}
+            onError={() => setImgFailed(true)}
+          />
+        </span>
+      )}
     </Show>
   );
 }
@@ -187,6 +217,128 @@ export function EquipmentBadgesFromSlotIds(props: {
       <For each={items()}>
         {(meta) => <EquipmentBadge name={meta.name} iconType={meta.iconType} />}
       </For>
+    </Show>
+  );
+}
+
+export interface HpDeltaBarProps {
+  before: number | null;
+  after: number | null;
+  max: number | null;
+  barWidthClass?: string;
+  showNumbers?: boolean;
+  /**
+   * "inline": bar + aligned numbers beside it (default)
+   * "stacked": compact layout with numbers cleanly above the bar
+   * "responsive": "stacked" on mobile (< md), "inline" on desktop (md+)
+   */
+  layout?: "inline" | "stacked" | "responsive";
+  class?: string;
+}
+
+/**
+ * Reusable HP transition bar showing remaining HP (state-colored) and
+ * the damage-reduced segment (high-contrast red stripe) on a single track.
+ */
+export function HpDeltaBar(props: HpDeltaBarProps): JSX.Element {
+  const safeMax = createMemo(() => {
+    const m = Number(props.max ?? props.before ?? 1);
+    return Number.isFinite(m) && m > 0 ? m : 1;
+  });
+  const clampedBefore = createMemo(() => {
+    const b = Number(props.before);
+    return Number.isFinite(b) ? Math.max(0, Math.min(safeMax(), b)) : 0;
+  });
+  const clampedAfter = createMemo(() => {
+    const a = Number(props.after);
+    return Number.isFinite(a) ? Math.max(0, Math.min(safeMax(), a)) : 0;
+  });
+  const beforePct = createMemo(() => (clampedBefore() / safeMax()) * 100);
+  const afterPct = createMemo(() => (clampedAfter() / safeMax()) * 100);
+  const deltaPct = createMemo(() => Math.max(0, beforePct() - afterPct()));
+
+  const fillCls = createMemo(() => {
+    if (clampedAfter() <= 0) return "bg-base-content/30";
+    return hpFillClass(afterPct());
+  });
+
+  const tooltip = () =>
+    `HP ${formatNullableNumber(props.before)} → ${formatNullableNumber(props.after)} / ${formatNullableNumber(props.max ?? props.before)}`;
+
+  const layout = () => props.layout ?? "inline";
+
+  const renderTrack = (heightClass: string, widthClass: string) => (
+    <div
+      class={`relative ${heightClass} ${widthClass} rounded-full overflow-hidden shrink-0 bg-base-300/80 ring-1 ring-inset ring-base-content/10`}
+      title={tooltip()}
+    >
+      {/* Remaining HP */}
+      <Show when={afterPct() > 0}>
+        <div
+          class={`absolute inset-y-0 left-0 ${deltaPct() > 0 ? "rounded-l-full" : "rounded-full"} ${fillCls()}`}
+          style={{ width: `${afterPct().toFixed(2)}%` }}
+        />
+      </Show>
+      {/* Reduced HP delta segment (clearly visible red diagonal stripe) */}
+      <Show when={deltaPct() > 0}>
+        <div
+          class="absolute inset-y-0"
+          style={{
+            left: `${afterPct().toFixed(2)}%`,
+            width: `${Math.min(100 - afterPct(), Math.max(deltaPct(), 2)).toFixed(2)}%`,
+            "background-image":
+              "repeating-linear-gradient(-45deg, rgba(242, 95, 92, 0.92), rgba(242, 95, 92, 0.92) 3px, rgba(242, 95, 92, 0.45) 3px, rgba(242, 95, 92, 0.45) 6px)",
+            "border-left": afterPct() > 0 ? "1px solid rgba(255,255,255,0.45)" : "none",
+          }}
+        />
+      </Show>
+    </div>
+  );
+
+  const renderInline = (displayClass: string) => (
+    <div class={`${displayClass} items-center gap-2 align-middle ${props.class ?? ""}`}>
+      {renderTrack("h-2", props.barWidthClass ?? "w-20")}
+      <Show when={props.showNumbers !== false}>
+        <span class="font-mono tabular-nums text-[11px] leading-none inline-grid grid-cols-[2.25rem_auto_2.25rem] items-center shrink-0 text-base-content/55">
+          <span class="text-base-content font-medium text-right">
+            {formatNullableNumber(props.after)}
+          </span>
+          <span class="px-0.5 text-center">/</span>
+          <span class="text-left">
+            {formatNullableNumber(props.max ?? props.before)}
+          </span>
+        </span>
+      </Show>
+    </div>
+  );
+
+  const renderStacked = (displayClass: string) => (
+    <div class={`${displayClass} flex-col items-stretch gap-0.5 align-middle ${props.barWidthClass ?? "w-[68px]"} ${props.class ?? ""}`}>
+      <Show when={props.showNumbers !== false}>
+        <span class="font-mono tabular-nums text-[10px] leading-none text-center text-base-content/60">
+          <span class="text-base-content font-medium">
+            {formatNullableNumber(props.after)}
+          </span>
+          /{formatNullableNumber(props.max ?? props.before)}
+        </span>
+      </Show>
+      {renderTrack("h-1.5", "w-full")}
+    </div>
+  );
+
+  return (
+    <Show
+      when={layout() === "responsive"}
+      fallback={
+        layout() === "stacked"
+          ? renderStacked("inline-flex")
+          : renderInline("inline-flex")
+      }
+    >
+      <>
+        {renderStacked("inline-flex md:hidden")}
+        {renderInline("hidden md:inline-flex")}
+      </>
     </Show>
   );
 }
@@ -430,7 +582,6 @@ export function ShipRows(props: {
       when={props.ships.length > 0}
       fallback={<div class="text-sm text-base-content/40">データなし</div>}
     >
-      <FleetSummary ships={props.ships} sideLabel={props.sideLabel} />
       <For each={props.ships}>
         {(ship) => {
           const statText = `火${ship.karyoku ?? "-"} 雷${ship.raisou ?? "-"} 対${ship.taiku ?? "-"} 装${ship.soukou ?? "-"}`;

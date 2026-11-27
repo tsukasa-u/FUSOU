@@ -25,6 +25,28 @@ let mstShipByIdCache: Map<number, MstShipRecord> | null = null;
 let mstSlotItemByIdCache: Map<number, MstSlotItemRecord> | null = null;
 let weaponIconFramesCache: Record<number, WeaponIconFrame> | null = null;
 let weaponIconMetaCache = { width: 0, height: 0 };
+let weaponIconFramesInFlight: Promise<{
+  frames: Record<number, WeaponIconFrame>;
+  meta: { width: number; height: number };
+}> | null = null;
+const weaponIconCacheListeners = new Set<() => void>();
+
+function notifyWeaponIconCacheListeners(): void {
+  for (const listener of weaponIconCacheListeners) {
+    try {
+      listener();
+    } catch {
+      // Ignore individual subscriber errors.
+    }
+  }
+}
+
+export function subscribeWeaponIconCaches(listener: () => void): () => void {
+  weaponIconCacheListeners.add(listener);
+  return () => {
+    weaponIconCacheListeners.delete(listener);
+  };
+}
 
 const GLOBAL_RECORD_LIMIT_BLOCKS = 120;
 const BATTLE_RESULT_LOOKUP_LIMIT = 50;
@@ -281,39 +303,49 @@ export async function getWeaponIconFrames(signal?: AbortSignal): Promise<{
   if (weaponIconFramesCache) {
     return { frames: weaponIconFramesCache, meta: weaponIconMetaCache };
   }
-  try {
-    const parsedPayload = SpriteAtlasSchema.safeParse(await fetchJson(
-      `/api/asset-sync/weapon-icon-frames?v=${WEAPON_ICON_FRAMESET_VERSION}`,
-      signal,
-    ));
-    if (!parsedPayload.success) throw new Error("Invalid weapon sprite atlas");
-    const payload = parsedPayload.data;
-    const frames: Record<number, WeaponIconFrame> = {};
-    for (const [name, entry] of Object.entries(payload.frames)) {
-      const m = String(name).match(/_id_(\d+)$/);
-      if (!m) continue;
-      const id = Number(m[1]);
-      const frame = entry?.frame;
-      if (!Number.isFinite(id) || !frame) continue;
-      frames[id] = {
-        x: frame.x,
-        y: frame.y,
-        w: frame.w,
-        h: frame.h,
-      };
-    }
-    weaponIconFramesCache = frames;
-    weaponIconMetaCache = {
-      width: payload.meta.size.w,
-      height: payload.meta.size.h,
-    };
-  } catch {
-    // Keep cache unset so callers can retry on the next invocation.
-    weaponIconFramesCache = null;
-    weaponIconMetaCache = { width: 0, height: 0 };
-    return { frames: {}, meta: weaponIconMetaCache };
+  if (weaponIconFramesInFlight) {
+    return weaponIconFramesInFlight;
   }
-  return { frames: weaponIconFramesCache, meta: weaponIconMetaCache };
+  const run = (async () => {
+    try {
+      const parsedPayload = SpriteAtlasSchema.safeParse(await fetchJson(
+        `/api/asset-sync/weapon-icon-frames?v=${WEAPON_ICON_FRAMESET_VERSION}`,
+        signal,
+      ));
+      if (!parsedPayload.success) throw new Error("Invalid weapon sprite atlas");
+      const payload = parsedPayload.data;
+      const frames: Record<number, WeaponIconFrame> = {};
+      for (const [name, entry] of Object.entries(payload.frames)) {
+        const m = String(name).match(/_id_(\d+)$/);
+        if (!m) continue;
+        const id = Number(m[1]);
+        const frame = entry?.frame;
+        if (!Number.isFinite(id) || !frame) continue;
+        frames[id] = {
+          x: frame.x,
+          y: frame.y,
+          w: frame.w,
+          h: frame.h,
+        };
+      }
+      weaponIconFramesCache = frames;
+      weaponIconMetaCache = {
+        width: payload.meta.size.w,
+        height: payload.meta.size.h,
+      };
+      notifyWeaponIconCacheListeners();
+      return { frames: weaponIconFramesCache, meta: weaponIconMetaCache };
+    } catch {
+      // Keep cache unset so callers can retry on the next invocation.
+      weaponIconFramesCache = null;
+      weaponIconMetaCache = { width: 0, height: 0 };
+      return { frames: {}, meta: weaponIconMetaCache };
+    } finally {
+      weaponIconFramesInFlight = null;
+    }
+  })();
+  weaponIconFramesInFlight = run;
+  return run;
 }
 
 export function getWeaponIconCaches(): {
