@@ -1,5 +1,31 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Live Freshness retirement completed; successor admission rejected — 2026-11-27
+
+[Candidate run #149](https://github.com/tsukasa-u/FUSOU/actions/runs/45969693009)
+passed all four jobs at `1c77b15b5c1a4e150ab1a22af9e859cbf18392fa`.
+The dedicated private Signer was updated to Cloudflare version
+`7e183a09-c65c-4901-8efe-84e62653c0d3`, with the existing SQLite namespace
+and R2 bucket. The signed retirement returned `RETIRED` for the sole
+retained issue. A read-only lookup returned the same receipt, with fence
+3 retired and fence 4 recorded. The original operation is `REJECTED`, has
+no finalized bytes, and its nonce remains consumed.
+
+The signed epoch-2 candidate passed standalone Manifest and artifact
+verification. The private update returned HTTP 409 and the operation lookup
+returned `NOT_FOUND`. Read-only SQLite metadata showed no admission, no
+pending writer and the original epoch-1 head. The exact epoch-1 Manifest
+fails current-time verification after expiry and passes at the signed
+Release Record's `authorized_at`; the Record binds the same Manifest digest.
+
+The Coordinator now revalidates committed predecessor evidence at the
+verified Record's authorization time. New Release admission, install, and
+Freshness still validate their current inputs and expiry. The new runtime
+regression failed on the original code. With the fix, the Coordinator
+typecheck and all 76 local runtime checks passed with no skips. The Gateway's
+public domain, live successor publication, APP Session and first authorized
+capture are pending. Stage A/B/C and Production acceptance remain `BLOCKED`.
+
 ## Candidate CI Ubuntu package sources — 2026-11-27
 
 Hosted run [#148](https://github.com/tsukasa-u/FUSOU/actions/runs/45968849206)

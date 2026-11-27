@@ -111,6 +111,8 @@ Gatewayは公開前に、非公開Service BindingでManifest・snapshot・5資�
 
 後続Manifestの用意には `prepareTlsnRuntimeConfigReleaseUpdate` の `successorManifestSigningApproval` を使います。承認署名は初回と別の署名ドメインで、旧Manifest digest・旧epoch・連続する新epochを固定します。署名前にWorkerの現行版とルートを再照合します。確認済みのManifestと5資料を非公開のRelease更新へ渡し、先に採番したoperation IDを使って `INSTALLED` を照会します。
 
+旧Manifestが期限切れの場合も、確定済みの前版はRelease Recordの署名に含まれる `authorized_at` で検証し、後続版の照合に使います。新しいManifestの登録と現在のFreshness発行では、その時点で有効な資料が必要です。登録が拒否された場合は、同じoperation IDで状態を確認してください。[実環境の復旧記録](../../FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md#live-freshness-retirement-completed-successor-admission-rejected--2026-11-27)
+
 ## 4. 同一LinuxホストでAPPとNotaryを確認する
 
 APPのビルド入力には承認済みの公開値3つを設定します。`SIGNER` を含む変数名ですが、V3の起点はBootstrapルートの公開情報です。

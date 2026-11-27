@@ -2334,6 +2334,45 @@ function registerRuntimeTests() {
       );
 
       it(
+        "verifies an expired committed predecessor without admitting it as a new Release",
+        { timeout: 20_000 },
+        async () => {
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "expired-committed-predecessor",
+            {
+              delegatedManifest: true,
+              configuredNowMs: Date.now() - 2 * 60 * 60_000,
+              install: false,
+            },
+          );
+          const { coordinator, fixture } = seeded;
+          const head = await coordinator.readReleaseLedgerHead();
+          assert.equal(head.recordSha256, fixture.releaseHead.recordSha256);
+          assert.ok(equalBytes(head.manifestBytes, fixture.manifestBytes));
+          const snapshot = await coordinator.readCloudflareOperatorReleaseSnapshot();
+          assert.equal(snapshot.head.recordSha256, head.recordSha256);
+          const operation = await coordinator.getReleaseOperation(snapshot.head.operationId);
+          assert.equal(operation.status, "AVAILABLE");
+          const expired = await makeSignedCloudflareOperatorReleaseUpdateFixture(fixture, {
+            nowMs: fixture.nowMs,
+          });
+          const unadmittedId = randomUUID();
+          await assert.rejects(
+            () => coordinator.beginReleaseOperation({
+              operationId: unadmittedId,
+              expectedHead: head,
+              manifestBytes: expired.manifestBytes,
+              publicationObjects: expired.publicationObjects,
+            }),
+            /Manifest validity exceeds its root delegation/u,
+          );
+          assert.equal(await coordinator.getReleaseOperation(unadmittedId), null);
+          assert.equal((await coordinator.readCloudflareOperatorReleaseSnapshot()).writerPending, false);
+        },
+      );
+
+      it(
         "rejects uninstalled or mixed operator evidence and prevents rebootstrap",
         { timeout: 20_000 },
         async () => {

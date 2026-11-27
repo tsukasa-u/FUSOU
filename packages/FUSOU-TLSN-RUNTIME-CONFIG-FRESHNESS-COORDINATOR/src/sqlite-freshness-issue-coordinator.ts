@@ -5620,12 +5620,13 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
 
   private verifyManifestPointer(
     raw: Uint8Array,
+    nowMs = runtimeUtcNow(),
   ): ReturnType<typeof verifyRuntimeConfigManifestEpochPointer> {
     return verifyRuntimeConfigManifestEpochPointer({
       raw,
       trustedSigner: this.requireManifestRootSigner(),
       manifestUrl: this.requireFreshnessManifestUrl(),
-      nowMs: runtimeUtcNow(),
+      nowMs,
     });
   }
 
@@ -5809,7 +5810,11 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       releaseDelegationRaw: releaseDelegationBytes,
       appendedAt: row.record_appended_at,
     });
-    const manifest = await this.verifyManifestPointer(manifestBytes);
+    // A committed head is historical evidence even after its Manifest expires.
+    const manifest = await this.verifyManifestPointer(
+      manifestBytes,
+      Date.parse(record.payload.authorized_at),
+    );
     if (
       record.digest !== row.record_sha256 ||
       recordBytes.byteLength !== row.record_length ||
@@ -5852,7 +5857,52 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
   private async verifyStoredReleaseOperation(
     operation: ReleaseLedgerOperation,
   ): Promise<void> {
-    const manifest = await this.verifyManifestPointer(operation.manifestBytes);
+    let authorizedAtMs: number | undefined;
+    if (operation.recordBytes === null || operation.releaseDelegationBytes === null) {
+      if (
+        operation.recordBytes !== null ||
+        operation.releaseDelegationBytes !== null ||
+        operation.recordSha256 !== null ||
+        operation.localAppendObservedAt !== null ||
+        operation.position !== null ||
+        operation.generation !== null
+      ) {
+        throw corruptStorage("Persisted Release operation has a partial Record binding");
+      }
+    } else {
+      if (
+        operation.recordSha256 === null ||
+        operation.localAppendObservedAt === null ||
+        operation.position === null ||
+        operation.generation === null
+      ) {
+        throw corruptStorage("Persisted Release operation has an incomplete Record binding");
+      }
+      const record = await verifyRuntimeConfigReleaseCommitRecord({
+        raw: operation.recordBytes,
+        rootSigner: this.requireReleaseRootSigner(),
+        environment: operation.environment,
+        releaseDelegationRaw: operation.releaseDelegationBytes,
+        appendedAt: operation.localAppendObservedAt,
+      });
+      assertReleaseRecordMatchesOperation(
+        record,
+        operation,
+        operation.recordBytes,
+        operation.releaseDelegationBytes,
+      );
+      if (record.payload.commit_generation !== operation.generation) {
+        throw corruptStorage("Persisted Release operation Record binding is invalid");
+      }
+      authorizedAtMs = Date.parse(record.payload.authorized_at);
+    }
+
+    // Only a verified committed Record supplies historical time. Uncommitted
+    // operations still have to pass the current-time Manifest checks.
+    const manifest = await this.verifyManifestPointer(
+      operation.manifestBytes,
+      authorizedAtMs,
+    );
     const manifestSha256 = await sha256Base64Url(operation.manifestBytes);
     if (
       manifestSha256 !== operation.manifestSha256 ||
@@ -5930,58 +5980,6 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       operation.signedRecordBytes !== null
     ) {
       throw corruptStorage("Unclaimed Release operation contains signer material");
-    }
-    if (
-      operation.recordBytes === null ||
-      operation.releaseDelegationBytes === null
-    ) {
-      if (
-        operation.recordBytes !== null ||
-        operation.releaseDelegationBytes !== null ||
-        operation.recordSha256 !== null ||
-        operation.localAppendObservedAt !== null ||
-        operation.position !== null ||
-        operation.generation !== null
-      ) {
-        throw corruptStorage(
-          "Persisted Release operation has a partial Record binding",
-        );
-      }
-      return;
-    }
-    if (
-      operation.recordSha256 === null ||
-      operation.localAppendObservedAt === null ||
-      operation.position === null ||
-      operation.generation === null
-    ) {
-      throw corruptStorage(
-        "Persisted Release operation has an incomplete Record binding",
-      );
-    }
-    const verifiedRecord = await verifyRuntimeConfigReleaseCommitRecord({
-      raw: operation.recordBytes,
-      rootSigner: this.requireReleaseRootSigner(),
-      environment: operation.environment,
-      releaseDelegationRaw: operation.releaseDelegationBytes,
-      appendedAt: operation.localAppendObservedAt,
-    });
-    assertReleaseRecordMatchesOperation(
-      verifiedRecord,
-      operation,
-      operation.recordBytes,
-      operation.releaseDelegationBytes,
-    );
-    if (
-      verifiedRecord.digest !== operation.recordSha256 ||
-      verifiedRecord.payload.commit_generation !== operation.generation ||
-      verifiedRecord.payload.manifest_epoch !== operation.manifestEpoch ||
-      verifiedRecord.payload.manifest_sha256 !== operation.manifestSha256 ||
-      verifiedRecord.payload.manifest_ref !== operation.manifestRef
-    ) {
-      throw corruptStorage(
-        "Persisted Release operation Record binding is invalid",
-      );
     }
   }
 
