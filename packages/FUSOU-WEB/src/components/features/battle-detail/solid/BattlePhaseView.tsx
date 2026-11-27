@@ -1,28 +1,110 @@
 /** @jsxImportSource solid-js */
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
-import { For, Show, createMemo } from "solid-js";
+import { EmptyState } from "@/components/common/solid/EmptyState";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import type { JSX } from "solid-js";
 import type {
   BattleFleets,
   MstShipRecord,
   MstSlotItemRecord,
+  TimelineEvent,
 } from "@/features/battles/types";
 import { PHASE_NAMES, AIR_STATE } from "@/features/battles/constants";
-import { normalizeNullableNumber, transitionState } from "@/features/battles/helpers";
+import {
+  formatNullableNumber,
+  normalizeNullableNumber,
+  transitionState,
+} from "@/features/battles/helpers";
 import { buildTimelineEvents } from "@/features/battles/timeline";
 import { jsonRecordOf } from "@/features/battles/payload-guards";
+import { bannerUrl } from "@/features/simulator/equip-calc";
 import {
   shipNameFromIndex,
   maxHpForShip,
-  ShipIndexBadge,
-  PhaseParticipant,
-  InlineHpMeter,
-  OutcomeBadges,
-  PhaseSummaryBadges,
-  EquipmentBadgesFromSlotIds,
+  slotItemMeta,
+  ShipBanner,
+  WeaponIcon,
+  HpDeltaBar,
 } from "./ui";
-import { SpriteMotionCounts } from "./sprite-motion-counts";
-import type { TimelineEvent } from "@/features/battles/types";
+import { SpriteMotionCounts, type SpriteMotionCountsLike } from "./sprite-motion-counts";
+
+// ── Types ─────────────────────────────────────────────────────────────────
+
+interface ResolvedActionRow {
+  id: string;
+  seq: number;
+  phaseKey: string;
+  phaseName: string;
+  actorRole: "main" | "airbase" | "support" | "friendly_force";
+  attackerSide: "friend" | "enemy";
+  attackerIndices: number[];
+  attackerMstShipId: number | null;
+  defenderSide: "friend" | "enemy";
+  defenderIdx: number | null;
+  damage: number;
+  crit: boolean;
+  protect: boolean;
+  sunk: boolean;
+  beforeHp: number | null;
+  afterHp: number | null;
+  maxHp: number | null;
+  afterState: string;
+  slotIds: number[];
+  attackTag: string;
+}
+
+interface SalvoTargetRow {
+  defenderIdx: number | null;
+  damage: number;
+  crit: boolean;
+  sunk: boolean;
+  beforeHp: number | null;
+  afterHp: number | null;
+  maxHp: number | null;
+  afterState: string;
+}
+
+interface SalvoBlock {
+  id: string;
+  waveTitle?: string;
+  waveSprite?: SpriteMotionCountsLike | null;
+  actorRole: "main" | "airbase" | "support" | "friendly_force";
+  attackerSide: "friend" | "enemy";
+  attackerIndices: number[];
+  attackerMstShipIds: number[];
+  attackerPlaneIds: number[];
+  defenderSide: "friend" | "enemy";
+  salvoLabel: string;
+  totalDmg: number;
+  targets: SalvoTargetRow[];
+}
+
+interface PhaseTactics {
+  airSuperiority?: number | null;
+  fTouchPlane?: number | null;
+  eTouchPlane?: number | null;
+  aaciShipIdx?: number | null;
+  aaciUseItems?: number[];
+  spriteCounts?: SpriteMotionCountsLike | null;
+  nightTouch?: [number | null, number | null] | null;
+  flarePos?: [number | null, number | null] | null;
+  isFriendlyForceFlare?: boolean;
+}
+
+interface PhaseSection {
+  id: string;
+  key: string;
+  title: string;
+  tactics: PhaseTactics | null;
+  salvos: SalvoBlock[];
+  actions: ResolvedActionRow[];
+  toEnemy: number;
+  toFriend: number;
+  sunkEnemy: number;
+  showLegacyWarning: boolean;
+}
+
+// ── Pure helpers ──────────────────────────────────────────────────────────
 
 function isAirbaseInvolvedPhaseKey(key: string): boolean {
   return (
@@ -39,6 +121,52 @@ function hasAirbasePhaseData(key: string, data: unknown): boolean {
   return jsonRecordOf(data) !== null;
 }
 
+function hasOpeningAirActivity(data: unknown): boolean {
+  const waves = Array.isArray(data)
+    ? data.map((w) => jsonRecordOf(w)).filter((w): w is Record<string, unknown> => w !== null)
+    : (() => {
+        const rec = jsonRecordOf(data);
+        return rec ? [rec] : [];
+      })();
+  if (waves.length === 0) return false;
+
+  return waves.some((wave) => {
+    const fPlaneFrom = Array.isArray(wave["f_plane_from"]) ? wave["f_plane_from"] : [];
+    const ePlaneFrom = Array.isArray(wave["e_plane_from"]) ? wave["e_plane_from"] : [];
+    const hasSortie =
+      fPlaneFrom.some((v) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 0;
+      }) ||
+      ePlaneFrom.some((v) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 0;
+      });
+    if (hasSortie) return true;
+
+    const fDam = Array.isArray(wave["f_damages"]) ? wave["f_damages"] : [];
+    const eDam = Array.isArray(wave["e_damages"]) ? wave["e_damages"] : [];
+    const hasDamage =
+      fDam.some((v) => (Number(v ?? 0) || 0) > 0) ||
+      eDam.some((v) => (Number(v ?? 0) || 0) > 0);
+    if (hasDamage) return true;
+
+    const fTouch = readNum(wave, "f_touch_plane");
+    const eTouch = readNum(wave, "e_touch_plane");
+    if ((fTouch !== null && fTouch > 0) || (eTouch !== null && eTouch > 0)) return true;
+
+    const airFireObj = jsonRecordOf(wave["air_fire"]);
+    const aaciIdx = readNum(wave, "airfire_idx") ?? readNum(airFireObj, "idx");
+    if (aaciIdx !== null && aaciIdx >= 0) return true;
+
+    const fFly = readNum(wave, "f_sprite_fly_count");
+    const eFly = readNum(wave, "e_sprite_fly_count");
+    if ((fFly !== null && fFly > 0) || (eFly !== null && eFly > 0)) return true;
+
+    return false;
+  });
+}
+
 function mstShipNameFromId(
   mstShipById: Map<number, MstShipRecord> | null | undefined,
   id: number | null | undefined,
@@ -50,43 +178,82 @@ function mstShipNameFromId(
   return name.length > 0 ? name : null;
 }
 
-// ── Phase data helpers ────────────────────────────────────────────────────
+function shipBannerForIndex(
+  side: "friend" | "enemy",
+  idx: number,
+  fleets: BattleFleets | null,
+): string {
+  const list = side === "friend" ? fleets?.friendlyShips : fleets?.enemyShips;
+  const ship = Array.isArray(list) ? list[idx] : null;
+  if (ship?.bannerUrl) return ship.bannerUrl;
+  if (ship?.shipId && ship.shipId > 0) return bannerUrl(ship.shipId, { f: "auto" });
+  return "";
+}
 
-function pickHougekiRowsByRound(
-  data: unknown,
-  roundIdx: number | null,
-): unknown {
+function bannerForMstShipId(id: number | null | undefined): string {
+  const n = Number(id ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return bannerUrl(n, { f: "auto" });
+}
+
+function toPositiveIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((v) => Number(v ?? 0))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+function readNum(source: Record<string, unknown> | null | undefined, key: string): number | null {
+  if (!source) return null;
+  const direct = source[key];
+  if (direct != null) {
+    const n = Number(direct);
+    return Number.isFinite(n) ? n : null;
+  }
+  const nested = jsonRecordOf(source["air_base_attack"])?.[key];
+  if (nested != null) {
+    const n = Number(nested);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function readSpriteCounts(source: Record<string, unknown> | null | undefined): SpriteMotionCountsLike | null {
+  if (!source) return null;
+  const counts: SpriteMotionCountsLike = {
+    f_sprite_fly_count: readNum(source, "f_sprite_fly_count"),
+    e_sprite_fly_count: readNum(source, "e_sprite_fly_count"),
+    f_sprite_crash_count: readNum(source, "f_sprite_crash_count"),
+    e_sprite_crash_count: readNum(source, "e_sprite_crash_count"),
+    f_sprite_damage_count: readNum(source, "f_sprite_damage_count"),
+    e_sprite_damage_count: readNum(source, "e_sprite_damage_count"),
+    f_sprite_non_normal_count: readNum(source, "f_sprite_non_normal_count"),
+    e_sprite_non_normal_count: readNum(source, "e_sprite_non_normal_count"),
+  };
+  const hasAny = Object.values(counts).some((v) => v !== null && v !== undefined);
+  return hasAny ? counts : null;
+}
+
+function pickHougekiRowsByRound(data: unknown, roundIdx: number | null): unknown {
   if (!Array.isArray(data)) return data;
   if (roundIdx == null) return data;
-
   const rows = data as Array<Record<string, unknown>>;
-  const byIndex1 = rows.filter(
-    (row) => Number(row["index_1"] ?? Number.NaN) === roundIdx,
-  );
+  const byIndex1 = rows.filter((row) => Number(row["index_1"] ?? Number.NaN) === roundIdx);
   if (byIndex1.length > 0) return byIndex1;
-
   return rows[roundIdx] ?? data;
 }
 
 function normalizeNightSupportAttackData(
   battle: Record<string, unknown>,
 ): Record<string, unknown> | null {
-  const nested = battle["night_support_attack"] as
-    | Record<string, unknown>
-    | null
-    | undefined;
-  const hourai = (nested?.["hourai"] ?? battle["night_support_hourai"]) as
-    | Record<string, unknown>
-    | null
-    | undefined;
-  const airatack = (nested?.["airatack"] ??
-    nested?.["airattack"] ??
-    battle["night_support_airatack"] ??
-    battle["night_support_airattack"]) as
-    | Record<string, unknown>
-    | null
-    | undefined;
-
+  const nested = jsonRecordOf(battle["night_support_attack"]);
+  const hourai = jsonRecordOf(nested?.["hourai"] ?? battle["night_support_hourai"]);
+  const airatack = jsonRecordOf(
+    nested?.["airatack"] ??
+      nested?.["airattack"] ??
+      battle["night_support_airatack"] ??
+      battle["night_support_airattack"],
+  );
   if (!hourai && !airatack) return null;
   return { hourai, airatack };
 }
@@ -94,7 +261,6 @@ function normalizeNightSupportAttackData(
 function hasRaigekiActivity(data: unknown): boolean {
   if (!data || typeof data !== "object") return false;
   const d = data as Record<string, unknown>;
-
   const raiCandidates = [d["frai"], d["f_rai"], d["frai_list_items"], d["erai"], d["e_rai"], d["erai_list_items"]];
   const hasTarget = raiCandidates.some((candidate) => {
     if (!Array.isArray(candidate)) return false;
@@ -110,948 +276,11 @@ function hasRaigekiActivity(data: unknown): boolean {
     });
   });
   if (hasTarget) return true;
-
   const damages = [d["fdam"], d["f_dam"], d["edam"], d["e_dam"]];
   return damages.some(
-    (arr) =>
-      Array.isArray(arr) &&
-      arr.some((v) => {
-        const n = Number(v ?? 0) || 0;
-        return n > 0;
-      }),
+    (arr) => Array.isArray(arr) && arr.some((v) => (Number(v ?? 0) || 0) > 0),
   );
 }
-
-function RaigekiRows(props: {
-  events: TimelineEvent[];
-  title: string;
-  fleets: BattleFleets | null;
-}): JSX.Element {
-  interface ResolvedRaigekiHit {
-    attackerSide: "friend" | "enemy";
-    attackerIdx: number | null;
-    attackerGroup: number[];
-    defenderSide: "friend" | "enemy";
-    defenderIdx: number;
-    dmg: number;
-    crit: boolean;
-    beforeHp: number | null;
-    afterHp: number | null;
-    atkHp: number | null;
-    sunk: boolean;
-  }
-
-  const resolvedHits = (): ResolvedRaigekiHit[] => {
-    const evs = props.events;
-    if (evs.length === 0) return [];
-    const first = evs[0];
-    if (!first) return [];
-    const fState = Array.isArray(first.fHps)
-      ? first.fHps.map((v) => normalizeNullableNumber(v))
-      : [];
-    const eState = Array.isArray(first.eHps)
-      ? first.eHps.map((v) => normalizeNullableNumber(v))
-      : [];
-
-    return evs
-      .filter((ev) => ev.type === "raigeki" && ev.defenderIdx !== null)
-      .map((ev) => {
-        const attackerGroup = Array.isArray(ev.attackerGroup)
-          ? ev.attackerGroup
-          : [];
-        const atkPool = ev.attackerSide === "friend" ? fState : eState;
-        const defPool = ev.defenderSide === "friend" ? fState : eState;
-        const atkHp =
-          ev.attackerIdx !== null
-            ? atkPool[ev.attackerIdx] ?? null
-            : null;
-        const defIdx = ev.defenderIdx as number;
-        const beforeHp = defPool[defIdx] ?? null;
-        const afterHp =
-          beforeHp === null ? null : Math.max(0, beforeHp - Math.max(0, ev.damage));
-        if (afterHp !== null) defPool[defIdx] = afterHp;
-        return {
-          attackerSide: ev.attackerSide,
-          attackerIdx: ev.attackerIdx,
-          attackerGroup,
-          defenderSide: ev.defenderSide,
-          defenderIdx: defIdx,
-          dmg: ev.damage,
-          crit: ev.crit,
-          beforeHp,
-          afterHp,
-          atkHp,
-          sunk: ev.sunk,
-        };
-      });
-  };
-
-  const attackerLabel = (hit: ResolvedRaigekiHit): string => {
-    if (hit.attackerGroup.length > 1) {
-      return hit.attackerGroup.map((idx) => `${idx + 1}番`).join("+");
-    }
-    return hit.attackerIdx !== null ? `${hit.attackerIdx + 1}番` : "-";
-  };
-
-  const attackerName = (hit: ResolvedRaigekiHit): string => {
-    if (hit.attackerGroup.length > 1) {
-      return hit.attackerGroup
-        .map((idx) => shipNameFromIndex(hit.attackerSide, idx, props.fleets))
-        .join(" / ");
-    }
-    if (hit.attackerIdx === null) return "不明";
-    return shipNameFromIndex(hit.attackerSide, hit.attackerIdx, props.fleets);
-  };
-
-  return (
-    <Show
-      when={resolvedHits().length > 0}
-      fallback={
-        <div class="text-xs text-base-content/50">
-          {props.title}: 有効打なし
-        </div>
-      }
-    >
-      <div class="mb-1 hidden text-[10px] uppercase tracking-wide text-base-content/45 md:grid md:grid-cols-[minmax(0,260px)_20px_minmax(0,1fr)] md:items-center">
-        <span>攻撃艦</span>
-        <span />
-        <span>対象 / 結果</span>
-      </div>
-      <div class="space-y-2">
-        <For each={resolvedHits()}>
-          {(hit) => {
-            const mHp = createMemo(() =>
-              maxHpForShip(
-                hit.defenderSide,
-                hit.defenderIdx,
-                hit.beforeHp,
-                props.fleets,
-              ),
-            );
-            const state = createMemo(() =>
-              transitionState(hit.beforeHp, hit.afterHp, mHp()),
-            );
-            const multiAttack = () => hit.attackerGroup.length > 1;
-            return (
-              <div class="rounded border border-base-300 bg-base-200 p-2">
-                <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-start">
-                  <Show
-                    when={!multiAttack() && hit.attackerIdx !== null}
-                    fallback={
-                      <div class="rounded bg-base-100 px-2 py-1 border border-base-300">
-                        <div class="mb-1 flex items-center gap-1.5">
-                          <div
-                            class={`text-[10px] font-mono font-bold ${hit.attackerSide === "enemy" ? "text-error" : "text-info"}`}
-                          >
-                            {attackerLabel(hit)}
-                          </div>
-                          <div class="text-xs font-semibold text-base-content/70">
-                            {attackerName(hit)}
-                          </div>
-                        </div>
-                      </div>
-                    }
-                  >
-                    <PhaseParticipant
-                      name={shipNameFromIndex(
-                        hit.attackerSide,
-                        hit.attackerIdx as number,
-                        props.fleets,
-                      )}
-                      side={hit.attackerSide}
-                      idx={hit.attackerIdx as number}
-                      hpCurrent={hit.atkHp}
-                      hpMax={maxHpForShip(
-                        hit.attackerSide,
-                        hit.attackerIdx as number,
-                        hit.atkHp,
-                        props.fleets,
-                      )}
-                    />
-                  </Show>
-                  <div class="flex items-center justify-center text-base-content/40">
-                    →
-                  </div>
-                  <div class="rounded bg-base-100 px-2 py-1 border border-base-300">
-                    <div class="flex flex-wrap items-center gap-2 justify-between">
-                      <div class="min-w-0">
-                        <div class="mb-1 flex items-center gap-1.5">
-                          <ShipIndexBadge idx={hit.defenderIdx} side={hit.defenderSide} />
-                          <div class="text-xs font-semibold text-base-content/70">
-                            {shipNameFromIndex(
-                              hit.defenderSide,
-                              hit.defenderIdx,
-                              props.fleets,
-                            )}
-                          </div>
-                        </div>
-                        <div class="text-[10px] text-base-content/65">
-                          <InlineHpMeter current={hit.beforeHp} max={mHp()} />
-                          <span class="text-base-content/40">{" -> "}</span>
-                          <InlineHpMeter current={hit.afterHp} max={mHp()} />
-                        </div>
-                      </div>
-                      <div class="ml-auto flex min-w-[200px] flex-wrap justify-end gap-1">
-                        <OutcomeBadges
-                          damage={hit.dmg}
-                          crit={hit.crit}
-                          protect={false}
-                          sunk={hit.sunk || state().sunk}
-                          afterState={state().afterState}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          }}
-        </For>
-      </div>
-    </Show>
-  );
-}
-
-function AirAttackBatchRows(props: {
-  events: TimelineEvent[];
-  fleets: BattleFleets | null;
-  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
-  mstShipById: Map<number, MstShipRecord> | null;
-}): JSX.Element {
-  const batches = createMemo(() => {
-    const map = new Map<number, TimelineEvent[]>();
-    let fallbackId = -1;
-    for (const ev of props.events) {
-      if (ev.type !== "air" || ev.separator === true) continue;
-      const id = Number.isFinite(Number(ev.airBatchId))
-        ? Number(ev.airBatchId)
-        : fallbackId--;
-      const rows = map.get(id) ?? [];
-      rows.push(ev);
-      map.set(id, rows);
-    }
-    return [...map.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([, rows]) => rows);
-  });
-
-  const resolvedRows = (rows: TimelineEvent[]) => {
-    if (rows.length === 0) return [] as Array<{
-      event: TimelineEvent;
-      beforeHp: number | null;
-      afterHp: number | null;
-    }>;
-    const first = rows[0];
-    if (!first) return [];
-    const fState = Array.isArray(first.fHps)
-      ? first.fHps.map((v) => normalizeNullableNumber(v))
-      : [];
-    const eState = Array.isArray(first.eHps)
-      ? first.eHps.map((v) => normalizeNullableNumber(v))
-      : [];
-
-    return rows.map((ev) => {
-      if (ev.defenderIdx === null) {
-        return { event: ev, beforeHp: null, afterHp: null };
-      }
-      const defPool = ev.defenderSide === "friend" ? fState : eState;
-      const beforeHp = defPool[ev.defenderIdx] ?? null;
-      const afterHp =
-        beforeHp === null ? null : Math.max(0, beforeHp - Math.max(0, ev.damage));
-      if (afterHp !== null) defPool[ev.defenderIdx] = afterHp;
-      return { event: ev, beforeHp, afterHp };
-    });
-  };
-
-  const batchLabel = (rows: TimelineEvent[]): string => {
-    const first = rows[0];
-    if (first?.actorRole === "airbase") {
-      if (first.airbaseBaseNo) return `第${first.airbaseBaseNo}基地航空隊`;
-      if (first.airbaseBaseNos && first.airbaseBaseNos.length > 0) {
-        return `第${first.airbaseBaseNos.join(", ")}基地航空隊`;
-      }
-      return "基地航空隊";
-    }
-    if (first?.actorRole === "support") return "支援航空攻撃";
-    return "艦載機";
-  };
-
-  const renderAttackerBlock = (ev: TimelineEvent): JSX.Element => {
-    const group = Array.isArray(ev.attackerGroup)
-      ? ev.attackerGroup.filter(
-          (v) => Number.isFinite(Number(v)) && Number(v) >= 0,
-        )
-      : [];
-    const slotIds = Array.isArray(ev.slotItems)
-      ? ev.slotItems
-          .map((v) => Number(v ?? 0))
-          .filter((n) => Number.isFinite(n) && n > 0)
-      : [];
-    const sourceLabel =
-      ev.attackerSide === "friend"
-        ? ev.actorRole === "airbase"
-          ? "基地航空隊"
-          : "友軍艦載機"
-        : "敵艦載機";
-    const preserveFormationDuplicates = ev.actorRole === "airbase";
-
-    return (
-      <div class="space-y-1">
-        <div class="text-[10px] uppercase tracking-wide text-base-content/45 mb-1">
-          {sourceLabel}
-        </div>
-        <Show when={slotIds.length > 0}>
-          <div class="text-[10px] text-base-content/55">
-            <EquipmentBadgesFromSlotIds
-              slotIds={slotIds}
-              mstSlotItemById={props.mstSlotItemById}
-              preserveDuplicates={preserveFormationDuplicates}
-            />
-          </div>
-        </Show>
-        <Show when={group.length > 0}>
-          <For each={group}>
-            {(shipIdx) => {
-              const idx = Number(shipIdx);
-              const hpPool = ev.attackerSide === "friend" ? ev.fHps : ev.eHps;
-              const h = hpPool[idx] ?? null;
-              return (
-                <PhaseParticipant
-                  name={shipNameFromIndex(ev.attackerSide, idx, props.fleets)}
-                  side={ev.attackerSide}
-                  idx={idx}
-                  hpCurrent={h}
-                  hpMax={maxHpForShip(ev.attackerSide, idx, h, props.fleets)}
-                />
-              );
-            }}
-          </For>
-        </Show>
-        <Show when={group.length === 0 && !!ev.attackerMstShipId}>
-          <div class="rounded bg-base-100 px-2 py-1 border border-base-300 text-xs font-semibold text-base-content/70">
-            {mstShipNameFromId(props.mstShipById, ev.attackerMstShipId) ??
-              `艦ID:${ev.attackerMstShipId}`}
-          </div>
-        </Show>
-      </div>
-    );
-  };
-
-  const renderDefenderRows = (
-    rows: Array<{ event: TimelineEvent; beforeHp: number | null; afterHp: number | null }>,
-  ): JSX.Element => {
-    const effective = rows.filter(
-      (r) => r.event.defenderIdx !== null && r.beforeHp !== null && r.afterHp !== null,
-    );
-    if (effective.length === 0) {
-      return (
-        <div class="rounded bg-base-100 px-2 py-1 border border-base-300 h-full">
-          <div class="h-full min-h-[56px] flex items-center justify-between text-xs">
-            <span class="text-base-content/40">対象なし</span>
-            <span class="font-semibold text-base-content/55">MISS</span>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div class="space-y-1">
-        <For each={effective}>
-          {(row) => {
-            const ev = row.event;
-            const beforeHp = row.beforeHp as number;
-            const afterHp = row.afterHp as number;
-            const mHp = createMemo(() =>
-              maxHpForShip(
-                ev.defenderSide,
-                ev.defenderIdx as number,
-                beforeHp,
-                props.fleets,
-              ),
-            );
-            const state = createMemo(() =>
-              transitionState(beforeHp, afterHp, mHp()),
-            );
-
-            return (
-              <div class="rounded bg-base-100 px-2 py-1 border border-base-300">
-                <div class="flex flex-wrap items-center gap-2 justify-between">
-                  <div class="min-w-0">
-                    <div class="mb-1 flex items-center gap-1.5">
-                      <ShipIndexBadge idx={ev.defenderIdx as number} side={ev.defenderSide} />
-                      <div class="text-xs font-semibold text-base-content/70">
-                        {shipNameFromIndex(
-                          ev.defenderSide,
-                          ev.defenderIdx as number,
-                          props.fleets,
-                        )}
-                      </div>
-                    </div>
-                    <div class="text-[10px] text-base-content/65">
-                      <InlineHpMeter current={beforeHp} max={mHp()} />
-                      <span class="text-base-content/40">{" -> "}</span>
-                      <InlineHpMeter current={afterHp} max={mHp()} />
-                    </div>
-                  </div>
-                  <div class="ml-auto flex min-w-[200px] flex-wrap justify-end gap-1">
-                    <OutcomeBadges
-                      damage={ev.damage}
-                      crit={ev.crit}
-                      protect={false}
-                      sunk={ev.sunk || state().sunk}
-                      afterState={state().afterState}
-                    />
-                  </div>
-                </div>
-              </div>
-            );
-          }}
-        </For>
-      </div>
-    );
-  };
-
-  return (
-    <Show
-      when={batches().length > 0}
-      fallback={<div class="text-xs text-base-content/50">有効打なし</div>}
-    >
-      <div class="space-y-4">
-        <For each={batches()}>
-          {(batch, i) => {
-            const rows = resolvedRows(batch);
-            const friendRows = rows.filter((r) => r.event.attackerSide === "friend");
-            const enemyRows = rows.filter((r) => r.event.attackerSide === "enemy");
-            const firstFriend = friendRows[0]?.event;
-            const firstEnemy = enemyRows[0]?.event;
-
-            return (
-              <div class="space-y-2">
-                <Show when={batches().length > 1}>
-                  <div class="text-xs font-bold">{batchLabel(batch)} 第{i() + 1}波</div>
-                </Show>
-                <Show when={!!firstFriend}>
-                  <div class="rounded border border-base-300 bg-base-200 p-2">
-                    <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-stretch">
-                      {renderAttackerBlock(firstFriend as TimelineEvent)}
-                      <div class="flex items-center justify-center text-base-content/40">→</div>
-                      {renderDefenderRows(friendRows)}
-                    </div>
-                  </div>
-                </Show>
-                <Show when={!!firstEnemy}>
-                  <div class="rounded border border-base-300 bg-base-200 p-2">
-                    <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-stretch">
-                      {renderAttackerBlock(firstEnemy as TimelineEvent)}
-                      <div class="flex items-center justify-center text-base-content/40">→</div>
-                      {renderDefenderRows(enemyRows)}
-                    </div>
-                  </div>
-                </Show>
-              </div>
-            );
-          }}
-        </For>
-      </div>
-    </Show>
-  );
-}
-
-function UnifiedAttackRows(props: {
-  events: TimelineEvent[];
-  title: string;
-  fleets: BattleFleets | null;
-  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
-  mstShipById: Map<number, MstShipRecord> | null;
-}): JSX.Element {
-  interface ResolvedEventRow {
-    event: TimelineEvent;
-    beforeHp: number | null;
-    afterHp: number | null;
-    atkHp: number | null;
-  }
-
-  const resolvedRows = (): ResolvedEventRow[] => {
-    const evs = props.events.filter((ev) => ev.separator !== true);
-    if (evs.length === 0) return [];
-    const first = evs[0];
-    if (!first) return [];
-    const fState = Array.isArray(first.fHps)
-      ? first.fHps.map((v) => normalizeNullableNumber(v))
-      : [];
-    const eState = Array.isArray(first.eHps)
-      ? first.eHps.map((v) => normalizeNullableNumber(v))
-      : [];
-
-    return evs.map((ev) => {
-      const atkPool = ev.attackerSide === "friend" ? fState : eState;
-      const defPool = ev.defenderSide === "friend" ? fState : eState;
-      const atkHp =
-        ev.attackerIdx !== null
-          ? atkPool[ev.attackerIdx] ?? null
-          : null;
-      if (ev.defenderIdx === null) {
-        return { event: ev, beforeHp: null, afterHp: null, atkHp };
-      }
-      const beforeHp = defPool[ev.defenderIdx] ?? null;
-      const afterHp =
-        beforeHp === null ? null : Math.max(0, beforeHp - Math.max(0, ev.damage));
-      if (afterHp !== null) defPool[ev.defenderIdx] = afterHp;
-      return { event: ev, beforeHp, afterHp, atkHp };
-    });
-  };
-
-  const attackerLabel = (ev: TimelineEvent): string => {
-    const group = Array.isArray(ev.attackerGroup)
-      ? ev.attackerGroup.filter(
-          (v) => Number.isFinite(Number(v)) && Number(v) >= 0,
-        )
-      : [];
-    if (group.length > 0) return group.map((idx) => `${idx + 1}番`).join("+");
-    if (ev.attackerIdx !== null) return `${ev.attackerIdx + 1}番`;
-    if (ev.type === "air") return "航空";
-    if (ev.type === "raigeki") return "雷撃";
-    return "-";
-  };
-
-  const attackerName = (ev: TimelineEvent): string => {
-    const group = Array.isArray(ev.attackerGroup)
-      ? ev.attackerGroup.filter(
-          (v) => Number.isFinite(Number(v)) && Number(v) >= 0,
-        )
-      : [];
-    if (group.length > 1) {
-      return group
-        .map((idx) => shipNameFromIndex(ev.attackerSide, idx, props.fleets))
-        .join(" / ");
-    }
-    if (group.length === 1) {
-      return shipNameFromIndex(ev.attackerSide, Number(group[0]), props.fleets);
-    }
-    if (ev.attackerIdx !== null) {
-      return shipNameFromIndex(ev.attackerSide, ev.attackerIdx, props.fleets);
-    }
-    if (ev.actorRole === "airbase") {
-      if (ev.airbaseBaseNo) return `第${ev.airbaseBaseNo}基地航空隊`;
-      if (ev.airbaseBaseNos && ev.airbaseBaseNos.length > 0) {
-        return `第${ev.airbaseBaseNos.join(", ")}基地航空隊`;
-      }
-      return "基地航空隊";
-    }
-    if (ev.attackerMstShipId) {
-      return (
-        mstShipNameFromId(props.mstShipById, ev.attackerMstShipId) ??
-        `艦ID:${ev.attackerMstShipId}`
-      );
-    }
-    return "-";
-  };
-
-  return (
-    <Show
-      when={resolvedRows().length > 0}
-      fallback={
-        <div class="text-xs text-base-content/50">
-          {props.title}: 有効打なし
-        </div>
-      }
-    >
-      <div class="mb-1 hidden text-[10px] uppercase tracking-wide text-base-content/45 md:grid md:grid-cols-[minmax(0,260px)_20px_minmax(0,1fr)] md:items-center">
-        <span>攻撃艦</span>
-        <span />
-        <span>対象 / 結果</span>
-      </div>
-      <div class="space-y-2">
-        <For each={resolvedRows()}>
-          {(row) => {
-            const ev = row.event;
-            const mHp = createMemo(() => {
-              if (ev.defenderIdx === null || row.beforeHp === null) return 1;
-              return maxHpForShip(
-                ev.defenderSide,
-                ev.defenderIdx,
-                row.beforeHp,
-                props.fleets,
-              );
-            });
-            const state = createMemo(() => {
-              if (row.beforeHp === null || row.afterHp === null) {
-                return { sunk: false, afterState: "" };
-              }
-              return transitionState(row.beforeHp, row.afterHp, mHp());
-            });
-
-            return (
-              <div class="rounded border border-base-300 bg-base-200 p-2">
-                <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-stretch">
-                  <Show
-                    when={ev.attackerIdx !== null}
-                    fallback={
-                      <div class="rounded bg-base-100 px-2 py-1 border border-base-300">
-                        <div class="mb-1 flex items-center gap-1.5">
-                          <div
-                            class={`text-[10px] font-mono font-bold ${ev.attackerSide === "enemy" ? "text-error" : "text-info"}`}
-                          >
-                            {attackerLabel(ev)}
-                          </div>
-                          <div class="text-xs font-semibold text-base-content/70">
-                            {attackerName(ev)}
-                          </div>
-                        </div>
-                        <Show when={(ev.slotItems?.length ?? 0) > 0}>
-                          <div class="text-[10px] text-base-content/55">
-                            <EquipmentBadgesFromSlotIds
-                              slotIds={ev.slotItems}
-                              mstSlotItemById={props.mstSlotItemById}
-                              preserveDuplicates={ev.actorRole === "airbase"}
-                            />
-                          </div>
-                        </Show>
-                      </div>
-                    }
-                  >
-                    <div class="space-y-1">
-                      <PhaseParticipant
-                        name={shipNameFromIndex(
-                          ev.attackerSide,
-                          ev.attackerIdx as number,
-                          props.fleets,
-                        )}
-                        side={ev.attackerSide}
-                        idx={ev.attackerIdx as number}
-                        hpCurrent={row.atkHp}
-                        hpMax={maxHpForShip(
-                          ev.attackerSide,
-                          ev.attackerIdx as number,
-                          row.atkHp,
-                          props.fleets,
-                        )}
-                      />
-                      <Show when={(ev.slotItems?.length ?? 0) > 0}>
-                        <div class="text-[10px] text-base-content/55">
-                          <EquipmentBadgesFromSlotIds
-                            slotIds={ev.slotItems}
-                            mstSlotItemById={props.mstSlotItemById}
-                            preserveDuplicates={ev.actorRole === "airbase"}
-                          />
-                        </div>
-                      </Show>
-                    </div>
-                  </Show>
-                  <div class="flex items-center justify-center text-base-content/40">→</div>
-                  <div class="rounded bg-base-100 px-2 py-1 border border-base-300 h-full">
-                    <Show
-                      when={ev.defenderIdx !== null && row.beforeHp !== null && row.afterHp !== null}
-                      fallback={
-                        <div class="h-full min-h-[56px] flex items-center justify-between text-xs">
-                          <span class="text-base-content/40">対象なし</span>
-                          <span class="font-semibold text-base-content/55">MISS</span>
-                        </div>
-                      }
-                    >
-                      <div class="flex flex-wrap items-center gap-2 justify-between">
-                        <div class="min-w-0">
-                          <div class="mb-1 flex items-center gap-1.5">
-                            <ShipIndexBadge idx={ev.defenderIdx as number} side={ev.defenderSide} />
-                            <div class="text-xs font-semibold text-base-content/70">
-                              {shipNameFromIndex(
-                                ev.defenderSide,
-                                ev.defenderIdx as number,
-                                props.fleets,
-                              )}
-                            </div>
-                          </div>
-                          <div class="text-[10px] text-base-content/65">
-                            <InlineHpMeter current={row.beforeHp as number} max={mHp()} />
-                            <span class="text-base-content/40">{" -> "}</span>
-                            <InlineHpMeter current={row.afterHp as number} max={mHp()} />
-                          </div>
-                        </div>
-                        <div class="ml-auto flex min-w-[200px] flex-wrap justify-end gap-1">
-                          <OutcomeBadges
-                            damage={ev.damage}
-                            crit={ev.crit}
-                            protect={false}
-                            sunk={ev.sunk || state().sunk}
-                            afterState={state().afterState}
-                          />
-                        </div>
-                      </div>
-                    </Show>
-                  </div>
-                </div>
-              </div>
-            );
-          }}
-        </For>
-      </div>
-    </Show>
-  );
-}
-
-function readDestructionValue(
-  source: Record<string, unknown>,
-  key: string,
-): number | null {
-  const direct = source[key];
-  if (direct != null) {
-    const n = Number(direct);
-    return Number.isFinite(n) ? n : null;
-  }
-  const nested = (source["air_base_attack"] as Record<string, unknown> | undefined)?.[key];
-  if (nested != null) {
-    const n = Number(nested);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
-}
-
-function destructionLostKindLabel(lostKind: number | null): string {
-  switch (lostKind) {
-    case 0:
-      return "None";
-    case 1:
-      return "Half squadron lost";
-    case 2:
-      return "One squadron lost";
-    case 3:
-      return "Two squadrons lost";
-    case 4:
-      return "Three squadrons lost";
-    case 5:
-      return "All squadrons lost";
-    default:
-      return "Unknown";
-  }
-}
-
-function DestructionBattleCard(props: {
-  data: Record<string, unknown>;
-}): JSX.Element {
-  const airSuperiority = () =>
-    readDestructionValue(props.data, "air_superiority") ?? -1;
-  const lostKind = () => readDestructionValue(props.data, "lost_kind");
-
-  return (
-    <div class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-200">
-      <input type="checkbox" checked />
-      <div class="collapse-title font-bold">
-        <div class="flex flex-wrap items-center justify-between gap-2 pr-6">
-          <span>基地空襲 (Destruction Battle)</span>
-          <span class="flex flex-wrap gap-1">
-            <PhaseSummaryBadges
-              items={[
-                AIR_STATE[airSuperiority()]?.label ?? null,
-                `Lost: ${destructionLostKindLabel(lostKind())}`,
-              ]}
-            />
-          </span>
-        </div>
-      </div>
-      <div class="collapse-content">
-        <div class="rounded border border-base-300 bg-base-100 p-2 text-sm">
-          <SpriteMotionCounts
-            counts={{
-              f_sprite_fly_count: readDestructionValue(props.data, "f_sprite_fly_count"),
-              e_sprite_fly_count: readDestructionValue(props.data, "e_sprite_fly_count"),
-              f_sprite_crash_count: readDestructionValue(props.data, "f_sprite_crash_count"),
-              e_sprite_crash_count: readDestructionValue(props.data, "e_sprite_crash_count"),
-              f_sprite_damage_count: readDestructionValue(props.data, "f_sprite_damage_count"),
-              e_sprite_damage_count: readDestructionValue(props.data, "e_sprite_damage_count"),
-              f_sprite_non_normal_count: readDestructionValue(props.data, "f_sprite_non_normal_count"),
-              e_sprite_non_normal_count: readDestructionValue(props.data, "e_sprite_non_normal_count"),
-            }}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-// ── Single phase card ─────────────────────────────────────────────────────
-
-function PhaseCard(props: {
-  battle: Record<string, unknown>;
-  phaseType: Record<string, unknown>;
-  phaseData: unknown;
-  fleets: BattleFleets | null;
-  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
-  mstShipById: Map<number, MstShipRecord> | null;
-  showLegacyAirbasePhaseWarning?: boolean;
-}): JSX.Element {
-  const phaseKey = () => Object.keys(props.phaseType)[0] ?? "";
-  const phaseName = () => {
-    return PHASE_NAMES[phaseKey()] ?? phaseKey();
-  };
-
-  const timelineEvents = createMemo(() =>
-    buildTimelineEvents(props.battle, props.fleets),
-  );
-
-  const raigekiEventsForPhase = createMemo(() =>
-    timelineEvents().filter(
-      (ev) =>
-        ev.type === "raigeki" &&
-        ev.phase === phaseName() &&
-        ev.separator !== true,
-    ),
-  );
-
-  const phaseEventsForPhase = createMemo(() =>
-    timelineEvents().filter(
-      (ev) => ev.phase === phaseName() && ev.separator !== true,
-    ),
-  );
-
-  const summaryBadges = (): (string | null)[] => {
-    const key = phaseKey();
-    const phaseEvents = phaseEventsForPhase();
-    const damageToFriend = phaseEvents
-      .filter((ev) => ev.defenderSide === "friend")
-      .reduce((s, ev) => s + (Number(ev.damage ?? 0) || 0), 0);
-    const damageToEnemy = phaseEvents
-      .filter((ev) => ev.defenderSide === "enemy")
-      .reduce((s, ev) => s + (Number(ev.damage ?? 0) || 0), 0);
-
-    if (
-      key === "Hougeki" ||
-      key === "OpeningTaisen" ||
-      key === "MidnightHougeki"
-    ) {
-      const shellingEvents = phaseEvents.filter((ev) => ev.type === "shelling");
-      if (shellingEvents.length > 0) {
-        const total = shellingEvents.reduce(
-          (s, ev) => s + (Number(ev.damage ?? 0) || 0),
-          0,
-        );
-        return [`${shellingEvents.length}行動`, `総与ダメ ${total}`];
-      }
-    } else if (key === "OpeningRaigeki" || key === "ClosingRaigeki") {
-      return [`味方被ダメ ${damageToFriend}`, `敵被ダメ ${damageToEnemy}`];
-    } else if (key === "OpeningAirAttack" || key === "AirBaseAirAttack" || key === "AirBaseAssult" || key === "CarrierBaseAssault") {
-      const waves = (key === "AirBaseAirAttack" && Array.isArray(props.phaseData))
-        ? (props.phaseData as Record<string, unknown>[])
-        : (Array.isArray(props.phaseData) ? [props.phaseData[0]] : [props.phaseData as Record<string, unknown>]);
-      let fTotal = 0;
-      let eTotal = 0;
-      let airLabels = new Set<string>();
-      
-      for (const wave of waves) {
-        if (!wave) continue;
-        fTotal += Array.isArray(wave.f_damages) ? Number((wave.f_damages as unknown[]).reduce((s: number, d: unknown) => s + (Number(d ?? 0) || 0), 0)) : 0;
-        eTotal += Array.isArray(wave.e_damages) ? Number((wave.e_damages as unknown[]).reduce((s: number, d: unknown) => s + (Number(d ?? 0) || 0), 0)) : 0;
-        const airLabel = AIR_STATE[Number(wave.air_superiority ?? -1)]?.label;
-        if (typeof airLabel === "string" && airLabel.length > 0) {
-          airLabels.add(airLabel);
-        }
-      }
-      
-      const badges: string[] = [];
-      if (airLabels.size > 0) {
-        badges.push([...airLabels].join(", "));
-      }
-      if (damageToFriend > 0 || damageToEnemy > 0) {
-        badges.push(`味方被ダメ ${damageToFriend}`, `敵被ダメ ${damageToEnemy}`);
-      } else {
-        badges.push("被害なし");
-      }
-      return badges;
-    } else if (key === "SupportAttack") {
-      return damageToFriend > 0 || damageToEnemy > 0
-        ? [`味方被ダメ ${damageToFriend}`, `敵被ダメ ${damageToEnemy}`]
-        : ["被害なし"];
-    } else if (key === "NightSupportAttack") {
-      return damageToFriend > 0 || damageToEnemy > 0
-        ? [`味方被ダメ ${damageToFriend}`, `敵被ダメ ${damageToEnemy}`]
-        : ["夜間支援 0"];
-    } else if (key === "FriendlyForceAttack") {
-      return damageToFriend > 0 || damageToEnemy > 0
-        ? [`味方被ダメ ${damageToFriend}`, `敵被ダメ ${damageToEnemy}`]
-        : ["被害なし"];
-    }
-    return [];
-  };
-
-  const phaseContent = (): JSX.Element => {
-    const key = phaseKey();
-    if (key === "OpeningRaigeki" || key === "ClosingRaigeki") {
-      return (
-        <RaigekiRows
-          events={raigekiEventsForPhase()}
-          title={phaseName()}
-          fleets={props.fleets}
-        />
-      );
-    }
-
-    if (
-      key === "OpeningAirAttack" ||
-      key === "AirBaseAirAttack" ||
-      key === "AirBaseAssult" ||
-      key === "CarrierBaseAssault"
-    ) {
-      return (
-        <AirAttackBatchRows
-          events={phaseEventsForPhase()}
-          fleets={props.fleets}
-          mstSlotItemById={props.mstSlotItemById}
-          mstShipById={props.mstShipById}
-        />
-      );
-    }
-
-    if (
-      key === "Hougeki" ||
-      key === "OpeningTaisen" ||
-      key === "MidnightHougeki" ||
-      key === "SupportAttack" ||
-      key === "NightSupportAttack" ||
-      key === "FriendlyForceAttack"
-    ) {
-      return (
-        <UnifiedAttackRows
-          events={phaseEventsForPhase()}
-          title={phaseName()}
-          fleets={props.fleets}
-          mstSlotItemById={props.mstSlotItemById}
-          mstShipById={props.mstShipById}
-        />
-      );
-    }
-
-    return <div class="text-xs text-base-content/40">データなし</div>;
-  };
-
-  return (
-    <div class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-200">
-      <input type="checkbox" checked />
-      <div class="collapse-title font-bold">
-        <div class="flex flex-wrap items-center justify-between gap-2 pr-6">
-          <span>{phaseName()}</span>
-          <span class="flex flex-wrap gap-1">
-            <PhaseSummaryBadges items={summaryBadges()} />
-          </span>
-        </div>
-      </div>
-      <div class="collapse-content">
-        <Show
-          when={
-            !!props.showLegacyAirbasePhaseWarning &&
-            isAirbaseInvolvedPhaseKey(phaseKey())
-          }
-        >
-          <div class="mb-3 text-xs">
-            <AlertMessage type="warning">
-              この基地航空隊フェーズは table_version 0.6.0 未満の既知不具合により、参照解決結果が正確でない可能性があります。
-            </AlertMessage>
-          </div>
-        </Show>
-        {phaseContent()}
-      </div>
-    </div>
-  );
-}
-
-// ── Phase extraction from battle ──────────────────────────────────────────
 
 function extractPhaseEntries(
   battle: Record<string, unknown>,
@@ -1059,42 +288,47 @@ function extractPhaseEntries(
   const entries: Array<{ type: Record<string, unknown>; data: unknown }> = [];
 
   const phaseDataForKey = (
-    battle: Record<string, unknown>,
+    b: Record<string, unknown>,
     key: string,
     idx: number | null,
   ): unknown => {
     switch (key) {
       case "AirBaseAssult":
-        return battle["air_base_assault"];
+        return b["air_base_assault"];
       case "CarrierBaseAssault":
-        return battle["carrier_base_assault"];
+        return b["carrier_base_assault"];
       case "AirBaseAirAttack":
-        return Array.isArray(battle["air_base_air_attacks"])
-          ? battle["air_base_air_attacks"]
-          : jsonRecordOf(battle["air_base_air_attacks"])?.["attacks"];
+        return Array.isArray(b["air_base_air_attacks"])
+          ? b["air_base_air_attacks"]
+          : jsonRecordOf(b["air_base_air_attacks"])?.["attacks"];
       case "OpeningAirAttack":
-        return Array.isArray(battle["opening_air_attack"])
-          ? (battle["opening_air_attack"] as unknown[])[idx ?? 0]
-          : battle["opening_air_attack"];
-      case "SupportAttack":
+        return Array.isArray(b["opening_air_attack"])
+          ? (b["opening_air_attack"] as unknown[])[idx ?? 0]
+          : b["opening_air_attack"];
+      case "SupportAttack": {
+        const nested = jsonRecordOf(b["support_attack"]);
         return {
-          support_hourai: battle["support_hourai"],
-          support_airatack: battle["support_airattack"],
+          support_hourai: nested?.["support_hourai"] ?? b["support_hourai"],
+          support_airatack:
+            nested?.["support_airatack"] ??
+            nested?.["support_airattack"] ??
+            b["support_airattack"],
         };
+      }
       case "OpeningTaisen":
-        return battle["opening_taisen"];
+        return b["opening_taisen"];
       case "OpeningRaigeki":
-        return battle["opening_raigeki"];
+        return b["opening_raigeki"];
       case "Hougeki":
-        return pickHougekiRowsByRound(battle["hougeki"], idx);
+        return pickHougekiRowsByRound(b["hougeki"], idx);
       case "ClosingRaigeki":
-        return battle["closing_raigeki"];
+        return b["closing_raigeki"];
       case "FriendlyForceAttack":
-        return battle["friendly_force_attack"];
+        return b["friendly_force_attack"];
       case "NightSupportAttack":
-        return normalizeNightSupportAttackData(battle);
+        return normalizeNightSupportAttackData(b);
       case "MidnightHougeki":
-        return battle["midnight_hougeki"];
+        return b["midnight_hougeki"];
       default:
         return null;
     }
@@ -1114,102 +348,679 @@ function extractPhaseEntries(
       if (isAirbaseInvolvedPhaseKey(key) && !hasAirbasePhaseData(key, data)) {
         continue;
       }
+      if (key === "OpeningAirAttack" && !hasOpeningAirActivity(data)) {
+        continue;
+      }
+      // Deduplicate consecutive identical phase keys (e.g. AirBaseAirAttack wave 0 & 1, Hougeki round 0 & 1)
+      // because buildTimelineEvents aggregates events by phaseName.
+      if (presentKeys.has(key)) continue;
       presentKeys.add(key);
-      entries.push({
-        type: phaseType,
-        data,
-      });
+      entries.push({ type: phaseType, data });
     }
     if (!presentKeys.has("OpeningRaigeki") && hasRaigekiActivity(battle["opening_raigeki"])) {
-      entries.push({
-        type: { OpeningRaigeki: 0 },
-        data: battle["opening_raigeki"],
-      });
+      entries.push({ type: { OpeningRaigeki: 0 }, data: battle["opening_raigeki"] });
     }
     if (!presentKeys.has("ClosingRaigeki") && hasRaigekiActivity(battle["closing_raigeki"])) {
-      entries.push({
-        type: { ClosingRaigeki: 0 },
-        data: battle["closing_raigeki"],
-      });
+      entries.push({ type: { ClosingRaigeki: 0 }, data: battle["closing_raigeki"] });
     }
   } else {
-    // Fallback for compact/legacy records
-    const airBaseAttacks =
-      jsonRecordOf(battle["air_base_air_attacks"])?.["attacks"];
+    const airBaseAttacks = jsonRecordOf(battle["air_base_air_attacks"])?.["attacks"];
     const hasAirBaseAirAttacks =
       (Array.isArray(airBaseAttacks) && airBaseAttacks.length > 0) ||
       Array.isArray(battle["air_base_air_attacks"]);
 
     if (battle["air_base_assault"] && typeof battle["air_base_assault"] === "object")
-      entries.push({
-        type: { AirBaseAssult: 0 },
-        data: battle["air_base_assault"],
-      });
+      entries.push({ type: { AirBaseAssult: 0 }, data: battle["air_base_assault"] });
     if (battle["carrier_base_assault"] && typeof battle["carrier_base_assault"] === "object")
-      entries.push({
-        type: { CarrierBaseAssault: 0 },
-        data: battle["carrier_base_assault"],
-      });
+      entries.push({ type: { CarrierBaseAssault: 0 }, data: battle["carrier_base_assault"] });
     if (hasAirBaseAirAttacks)
-      entries.push({
-        type: { AirBaseAirAttack: 0 },
-        data: phaseDataForKey(battle, "AirBaseAirAttack", 0),
-      });
+      entries.push({ type: { AirBaseAirAttack: 0 }, data: phaseDataForKey(battle, "AirBaseAirAttack", 0) });
     if (
-      Array.isArray(battle["opening_air_attack"]) &&
-      battle["opening_air_attack"].length > 0
+      hasOpeningAirActivity(battle["opening_air_attack"])
     )
-      entries.push({
-        type: { OpeningAirAttack: 0 },
-        data: phaseDataForKey(battle, "OpeningAirAttack", 0),
-      });
-    if (battle["support_hourai"] || battle["support_airattack"])
-      entries.push({
-        type: { SupportAttack: 0 },
-        data: phaseDataForKey(battle, "SupportAttack", null),
-      });
+      entries.push({ type: { OpeningAirAttack: 0 }, data: phaseDataForKey(battle, "OpeningAirAttack", 0) });
+    if (battle["support_attack"] || battle["support_hourai"] || battle["support_airattack"])
+      entries.push({ type: { SupportAttack: 0 }, data: phaseDataForKey(battle, "SupportAttack", null) });
     if (battle["opening_taisen"])
       entries.push({ type: { OpeningTaisen: 0 }, data: battle["opening_taisen"] });
     if (battle["opening_raigeki"] && typeof battle["opening_raigeki"] === "object")
-      entries.push({
-        type: { OpeningRaigeki: 0 },
-        data: battle["opening_raigeki"],
-      });
+      entries.push({ type: { OpeningRaigeki: 0 }, data: battle["opening_raigeki"] });
     if (
       battle["hougeki"] &&
       (Array.isArray(battle["hougeki"]) ||
         (jsonRecordOf(battle["hougeki"]) !== null &&
           Object.keys(jsonRecordOf(battle["hougeki"]) ?? {}).length > 0))
     )
-      entries.push({
-        type: { Hougeki: 0 },
-        data: phaseDataForKey(battle, "Hougeki", 0),
-      });
+      entries.push({ type: { Hougeki: 0 }, data: phaseDataForKey(battle, "Hougeki", 0) });
     if (battle["closing_raigeki"] && typeof battle["closing_raigeki"] === "object")
-      entries.push({
-        type: { ClosingRaigeki: 0 },
-        data: battle["closing_raigeki"],
-      });
+      entries.push({ type: { ClosingRaigeki: 0 }, data: battle["closing_raigeki"] });
     if (battle["friendly_force_attack"])
-      entries.push({
-        type: { FriendlyForceAttack: 0 },
-        data: battle["friendly_force_attack"],
-      });
+      entries.push({ type: { FriendlyForceAttack: 0 }, data: battle["friendly_force_attack"] });
     if (normalizeNightSupportAttackData(battle))
-      entries.push({
-        type: { NightSupportAttack: 0 },
-        data: phaseDataForKey(battle, "NightSupportAttack", null),
-      });
+      entries.push({ type: { NightSupportAttack: 0 }, data: phaseDataForKey(battle, "NightSupportAttack", null) });
     if (battle["midnight_hougeki"])
-      entries.push({
-        type: { MidnightHougeki: 0 },
-        data: battle["midnight_hougeki"],
-      });
+      entries.push({ type: { MidnightHougeki: 0 }, data: battle["midnight_hougeki"] });
   }
   return entries;
 }
 
-// ── Exported component ────────────────────────────────────────────────────
+function extractPhaseTactics(
+  key: string,
+  battle: Record<string, unknown>,
+  phaseData: unknown,
+): PhaseTactics | null {
+  if (
+    key === "OpeningAirAttack" ||
+    key === "AirBaseAssult" ||
+    key === "CarrierBaseAssault" ||
+    key === "AirBaseAirAttack"
+  ) {
+    const firstWave = Array.isArray(phaseData)
+      ? jsonRecordOf(phaseData[0])
+      : jsonRecordOf(phaseData);
+    if (!firstWave) return null;
+
+    const airSup = readNum(firstWave, "air_superiority");
+    const fTouch = readNum(firstWave, "f_touch_plane");
+    const eTouch = readNum(firstWave, "e_touch_plane");
+    const airFireObj = jsonRecordOf(firstWave["air_fire"]);
+    const aaciIdx = readNum(firstWave, "airfire_idx") ?? readNum(airFireObj, "idx");
+    const aaciItems = toPositiveIds(
+      firstWave["airfire_use_item"] ?? airFireObj?.["use_item"],
+    );
+    const spriteCounts = key === "AirBaseAirAttack" ? null : readSpriteCounts(firstWave);
+
+    const hasAny =
+      (airSup !== null && AIR_STATE[airSup] !== undefined) ||
+      (fTouch !== null && fTouch > 0) ||
+      (eTouch !== null && eTouch > 0) ||
+      (aaciIdx !== null && aaciIdx >= 0) ||
+      spriteCounts !== null;
+
+    if (!hasAny) return null;
+    return {
+      airSuperiority: airSup,
+      fTouchPlane: fTouch,
+      eTouchPlane: eTouch,
+      aaciShipIdx: aaciIdx !== null && aaciIdx >= 0 ? aaciIdx : null,
+      aaciUseItems: aaciItems,
+      spriteCounts,
+    };
+  }
+
+  if (key === "FriendlyForceAttack") {
+    const ff = jsonRecordOf(battle["friendly_force_attack"]);
+    const sh = jsonRecordOf(ff?.["support_hourai"]);
+    const flare = Array.isArray(sh?.["flare_pos"]) ? sh["flare_pos"] : null;
+    if (!flare) return null;
+    const fp = normalizeNullableNumber(flare[0]);
+    const ep = normalizeNullableNumber(flare[1]);
+    if ((fp === null || fp < 0) && (ep === null || ep < 0)) return null;
+    return { flarePos: [fp, ep], isFriendlyForceFlare: true };
+  }
+
+  if (key === "MidnightHougeki") {
+    const touchRaw = Array.isArray(battle["midnight_touchplane"])
+      ? battle["midnight_touchplane"]
+      : null;
+    const flareRaw = Array.isArray(battle["midnight_flare_pos"])
+      ? battle["midnight_flare_pos"]
+      : null;
+    const fTouch = touchRaw ? normalizeNullableNumber(touchRaw[0]) : null;
+    const eTouch = touchRaw ? normalizeNullableNumber(touchRaw[1]) : null;
+    const fFlare = flareRaw ? normalizeNullableNumber(flareRaw[0]) : null;
+    const eFlare = flareRaw ? normalizeNullableNumber(flareRaw[1]) : null;
+    const hasTouch = (fTouch !== null && fTouch > 0) || (eTouch !== null && eTouch > 0);
+    const hasFlare = (fFlare !== null && fFlare >= 0) || (eFlare !== null && eFlare >= 0);
+    if (!hasTouch && !hasFlare) return null;
+    return {
+      nightTouch: hasTouch ? [fTouch, eTouch] : null,
+      flarePos: hasFlare ? [fFlare, eFlare] : null,
+      isFriendlyForceFlare: false,
+    };
+  }
+
+  return null;
+}
+
+function destructionLostKindLabel(lostKind: number | null): string {
+  switch (lostKind) {
+    case 0:
+      return "被害なし";
+    case 1:
+      return "半数喪失";
+    case 2:
+      return "1中隊喪失";
+    case 3:
+      return "2中隊喪失";
+    case 4:
+      return "3中隊喪失";
+    case 5:
+      return "全中隊喪失";
+    default:
+      return "不明";
+  }
+}
+
+// ── UI Primitives (DESIGN.MD compliant, 96x24 ShipBanner, h-7 salvo rows) ─
+
+function DenseShipCell(props: {
+  name: string;
+  bannerSrc: string;
+  prefix: string;
+  prefixTone: "info" | "error" | "success" | "warning";
+  sunk?: boolean;
+}): JSX.Element {
+  const toneCls = () => {
+    switch (props.prefixTone) {
+      case "error":
+        return "text-error";
+      case "success":
+        return "text-success";
+      case "warning":
+        return "text-warning";
+      default:
+        return "text-info";
+    }
+  };
+  return (
+    <div class="h-6 sm:h-7 flex items-center gap-1.5 sm:gap-2 min-w-0" title={`${props.prefix} ${props.name}`}>
+      <div class="relative w-[72px] h-[18px] sm:w-24 sm:h-6 shrink-0 rounded overflow-hidden border border-base-300/75">
+        <ShipBanner
+          src={props.bannerSrc || undefined}
+          alt={props.name}
+          class={`w-[72px] h-[18px] sm:w-24 sm:h-6 rounded-none ${props.sunk ? "grayscale brightness-50" : ""}`}
+        />
+        <Show when={props.sunk}>
+          <span class="absolute inset-0 flex items-center justify-center bg-black/45 text-[9px] font-bold tracking-widest text-white">
+            撃沈
+          </span>
+        </Show>
+      </div>
+      <div class="hidden sm:flex min-w-0 items-center gap-1.5">
+        <span class={`font-mono tabular-nums text-[10px] font-semibold w-5 shrink-0 ${toneCls()}`}>
+          {props.prefix}
+        </span>
+        <span
+          class={`hidden lg:inline text-xs font-medium truncate ${
+            props.sunk ? "text-base-content/50" : "text-base-content"
+          }`}
+          title={props.name}
+        >
+          {props.name}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function DensePlaneRow(props: {
+  slotId: number;
+  index: number;
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
+}): JSX.Element {
+  const meta = createMemo(() => slotItemMeta(props.slotId, props.mstSlotItemById));
+  return (
+    <div class="h-6 sm:h-7 flex items-center gap-1.5 sm:gap-2 min-w-0" title={meta().name}>
+      <span class="font-mono tabular-nums text-[10px] w-4 shrink-0 text-center text-base-content/50">
+        {props.index + 1}
+      </span>
+      <WeaponIcon iconType={meta().iconType} />
+      <span class="hidden lg:inline text-xs truncate text-base-content">
+        {meta().name || `装備#${props.slotId}`}
+      </span>
+    </div>
+  );
+}
+
+function FixedOutcomeCell(props: {
+  damage: number;
+  crit: boolean;
+  protect: boolean;
+  sunk: boolean;
+  afterState: string;
+}): JSX.Element {
+  const tooltip = () => {
+    const parts: string[] = [];
+    parts.push(props.damage > 0 ? `-${props.damage}` : "MISS");
+    if (props.crit) parts.push("クリティカル");
+    if (props.sunk) parts.push("撃沈");
+    else if (props.afterState) parts.push(props.afterState);
+    if (props.protect) parts.push("かばう");
+    return parts.join(" / ");
+  };
+
+  return (
+    <div class="inline-flex items-center justify-end gap-1" title={tooltip()}>
+      <Show
+        when={props.damage > 0}
+        fallback={
+          <span class="font-mono text-[11px] w-11 text-right inline-block shrink-0 text-base-content/40">
+            MISS
+          </span>
+        }
+      >
+        <span
+          class={`font-mono tabular-nums text-xs w-11 text-right inline-block shrink-0 ${
+            props.crit
+              ? "text-error font-bold"
+              : "text-base-content font-semibold"
+          }`}
+        >
+          -{props.damage}
+        </span>
+      </Show>
+      <Show when={props.protect}>
+        <span class="inline-flex items-center justify-center h-4 px-1 rounded border border-warning/40 bg-warning/10 text-[10px] leading-none font-medium text-warning shrink-0">
+          かばう
+        </span>
+      </Show>
+    </div>
+  );
+}
+
+function SingleLineEquipmentCell(props: {
+  slotIds: number[];
+  fallbackTag: string;
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
+}): JSX.Element {
+  const metas = createMemo(() =>
+    props.slotIds
+      .map((id) => slotItemMeta(id, props.mstSlotItemById))
+      .filter((m) => m.name),
+  );
+
+  return (
+    <Show
+      when={metas().length > 0}
+      fallback={
+        <span class="text-[10px] md:text-[11px] text-base-content/55 truncate block">
+          {props.fallbackTag}
+        </span>
+      }
+    >
+      <div
+        class="inline-flex items-center gap-1 md:gap-1.5 h-5 max-w-full min-w-0"
+        title={metas().map((m) => m.name).join(" / ")}
+      >
+        <span class="inline-flex items-center gap-0.5 shrink-0">
+          <For each={metas()}>
+            {(meta) => <WeaponIcon iconType={meta.iconType} />}
+          </For>
+        </span>
+        <span class="hidden md:inline text-[11px] truncate text-base-content/80">
+          {metas()[0]?.name}
+        </span>
+        <Show when={metas().length > 1}>
+          <span class="hidden md:inline-flex font-mono tabular-nums text-[10px] px-1.5 h-4 items-center rounded border border-base-300 bg-base-200 text-base-content/75 shrink-0">
+            +{metas().length - 1}
+          </span>
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
+function PhaseTacticalStrip(props: {
+  tactics: PhaseTactics | null;
+  fleets: BattleFleets | null;
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
+}): JSX.Element | null {
+  return (
+    <Show when={props.tactics}>
+      {(t) => {
+        const airState = () =>
+          t().airSuperiority != null ? AIR_STATE[t().airSuperiority!] : undefined;
+        const fTouchMeta = () =>
+          t().fTouchPlane && t().fTouchPlane! > 0
+            ? slotItemMeta(t().fTouchPlane, props.mstSlotItemById)
+            : null;
+        const eTouchMeta = () =>
+          t().eTouchPlane && t().eTouchPlane! > 0
+            ? slotItemMeta(t().eTouchPlane, props.mstSlotItemById)
+            : null;
+        const hasTouch = () => fTouchMeta() !== null || eTouchMeta() !== null;
+
+        const nightFTouch = () => {
+          const id = t().nightTouch?.[0];
+          return id && id > 0 ? slotItemMeta(id, props.mstSlotItemById) : null;
+        };
+        const nightETouch = () => {
+          const id = t().nightTouch?.[1];
+          return id && id > 0 ? slotItemMeta(id, props.mstSlotItemById) : null;
+        };
+
+        const aaciShipName = () =>
+          t().aaciShipIdx != null
+            ? shipNameFromIndex("friend", t().aaciShipIdx!, props.fleets)
+            : "";
+        const aaciShipBanner = () =>
+          t().aaciShipIdx != null
+            ? shipBannerForIndex("friend", t().aaciShipIdx!, props.fleets)
+            : "";
+
+        return (
+          <div class="px-3.5 py-2 border-b border-base-300/75 bg-base-200/50 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+            <Show when={airState()}>
+              {(as) => (
+                <div class="inline-flex items-center gap-1.5">
+                  <span class="text-base-content/55">制空:</span>
+                  <span class={`font-semibold ${as().cls}`}>{as().label}</span>
+                </div>
+              )}
+            </Show>
+
+            <Show when={hasTouch()}>
+              <div class="inline-flex items-center gap-1.5">
+                <span class="text-base-content/55">触接:</span>
+                <span class="inline-flex items-center gap-1 text-base-content">
+                  <Show when={fTouchMeta()} fallback={<span class="text-base-content/40">なし</span>}>
+                    {(m) => (
+                      <>
+                        <WeaponIcon iconType={m().iconType} />
+                        <span>{m().name}</span>
+                      </>
+                    )}
+                  </Show>
+                </span>
+                <span class="text-base-content/40">/</span>
+                <span class="inline-flex items-center gap-1 text-base-content">
+                  <Show when={eTouchMeta()} fallback={<span class="text-base-content/40">なし</span>}>
+                    {(m) => (
+                      <>
+                        <WeaponIcon iconType={m().iconType} />
+                        <span>{m().name}</span>
+                      </>
+                    )}
+                  </Show>
+                </span>
+              </div>
+            </Show>
+
+            <Show when={t().aaciShipIdx != null}>
+              <div class="inline-flex items-center gap-1.5 flex-wrap">
+                <span class="text-base-content/55">対空CI:</span>
+                <div class="w-24 h-6 shrink-0 rounded overflow-hidden border border-base-300/75">
+                  <ShipBanner src={aaciShipBanner() || undefined} alt={aaciShipName()} class="w-24 h-6 rounded-none" />
+                </div>
+                <span class="font-medium text-base-content">{aaciShipName()}</span>
+                <Show when={(t().aaciUseItems?.length ?? 0) > 0}>
+                  <span class="inline-flex items-center gap-1 flex-wrap">
+                    <For each={t().aaciUseItems}>
+                      {(slotId) => {
+                        const meta = createMemo(() => slotItemMeta(slotId, props.mstSlotItemById));
+                        return (
+                          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-base-300/75 bg-base-100 text-[11px] leading-none text-base-content/80">
+                            <WeaponIcon iconType={meta().iconType} />
+                            <span>{meta().name || `装備#${slotId}`}</span>
+                          </span>
+                        );
+                      }}
+                    </For>
+                  </span>
+                </Show>
+              </div>
+            </Show>
+
+            <Show when={t().nightTouch}>
+              <div class="inline-flex items-center gap-1.5">
+                <span class="text-base-content/55">夜間触接:</span>
+                <span class="inline-flex items-center gap-1 text-base-content">
+                  <Show when={nightFTouch()} fallback={<span class="text-base-content/40">なし</span>}>
+                    {(m) => (
+                      <>
+                        <WeaponIcon iconType={m().iconType} />
+                        <span>{m().name}</span>
+                      </>
+                    )}
+                  </Show>
+                </span>
+                <span class="text-base-content/40">/</span>
+                <span class="inline-flex items-center gap-1 text-base-content">
+                  <Show when={nightETouch()} fallback={<span class="text-base-content/40">なし</span>}>
+                    {(m) => (
+                      <>
+                        <WeaponIcon iconType={m().iconType} />
+                        <span>{m().name}</span>
+                      </>
+                    )}
+                  </Show>
+                </span>
+              </div>
+            </Show>
+
+            <Show when={t().flarePos}>
+              {(fp) => {
+                const fIdx = () => fp()[0];
+                const eIdx = () => fp()[1];
+                return (
+                  <div class="inline-flex items-center gap-1.5">
+                    <span class="text-base-content/55">照明弾:</span>
+                    <Show
+                      when={fIdx() !== null && fIdx()! >= 0}
+                      fallback={<span class="text-base-content/40">なし</span>}
+                    >
+                      <span class="inline-flex items-center gap-1.5">
+                        <div class="w-24 h-6 shrink-0 rounded overflow-hidden border border-base-300/75">
+                          <ShipBanner
+                            src={shipBannerForIndex("friend", fIdx()!, props.fleets) || undefined}
+                            alt={shipNameFromIndex("friend", fIdx()!, props.fleets)}
+                            class="w-24 h-6 rounded-none"
+                          />
+                        </div>
+                        <span class="font-medium text-base-content">
+                          {shipNameFromIndex("friend", fIdx()!, props.fleets)}
+                        </span>
+                      </span>
+                    </Show>
+                    <span class="text-base-content/40">/</span>
+                    <Show
+                      when={eIdx() !== null && eIdx()! >= 0}
+                      fallback={<span class="text-base-content/40">なし</span>}
+                    >
+                      <span class="inline-flex items-center gap-1.5">
+                        <div class="w-24 h-6 shrink-0 rounded overflow-hidden border border-base-300/75">
+                          <ShipBanner
+                            src={shipBannerForIndex("enemy", eIdx()!, props.fleets) || undefined}
+                            alt={shipNameFromIndex("enemy", eIdx()!, props.fleets)}
+                            class="w-24 h-6 rounded-none"
+                          />
+                        </div>
+                        <span class="font-medium text-base-content">
+                          {shipNameFromIndex("enemy", eIdx()!, props.fleets)}
+                        </span>
+                      </span>
+                    </Show>
+                  </div>
+                );
+              }}
+            </Show>
+
+            <Show when={t().spriteCounts}>
+              {(sc) => (
+                <div class="text-[11px] text-base-content/75">
+                  <SpriteMotionCounts counts={sc()} />
+                </div>
+              )}
+            </Show>
+          </div>
+        );
+      }}
+    </Show>
+  );
+}
+
+// ── Build Phase Sections from Battle & TimelineEvents ─────────────────────
+
+function buildSalvosForAirPhase(
+  key: string,
+  events: TimelineEvent[],
+  phaseData: unknown,
+  fleets: BattleFleets | null,
+): SalvoBlock[] {
+  const wavesData = Array.isArray(phaseData)
+    ? phaseData.map((w) => jsonRecordOf(w))
+    : [jsonRecordOf(phaseData)];
+
+  const batchMap = new Map<number, TimelineEvent[]>();
+  let fallbackId = -1;
+  for (const ev of events) {
+    if (ev.type !== "air" || ev.separator === true) continue;
+    const id = Number.isFinite(Number(ev.airBatchId))
+      ? Number(ev.airBatchId)
+      : fallbackId--;
+    const rows = batchMap.get(id) ?? [];
+    rows.push(ev);
+    batchMap.set(id, rows);
+  }
+  const batches = [...batchMap.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, rows]) => rows);
+
+  const salvos: SalvoBlock[] = [];
+
+  batches.forEach((batch, waveIdx) => {
+    const first = batch[0];
+    if (!first) return;
+    const fState = Array.isArray(first.fHps)
+      ? first.fHps.map((v) => normalizeNullableNumber(v))
+      : [];
+    const eState = Array.isArray(first.eHps)
+      ? first.eHps.map((v) => normalizeNullableNumber(v))
+      : [];
+
+    const resolved = batch.map((ev) => {
+      if (ev.defenderIdx === null) return { ev, beforeHp: null, afterHp: null };
+      const pool = ev.defenderSide === "friend" ? fState : eState;
+      const beforeHp = pool[ev.defenderIdx] ?? null;
+      const afterHp =
+        beforeHp === null ? null : Math.max(0, beforeHp - Math.max(0, ev.damage));
+      if (afterHp !== null) pool[ev.defenderIdx] = afterHp;
+      return { ev, beforeHp, afterHp };
+    });
+
+    const waveRec = wavesData[waveIdx] ?? null;
+    const waveSprite = key === "AirBaseAirAttack" ? readSpriteCounts(waveRec) : null;
+    const waveLabelPrefix = (() => {
+      if (key === "AirBaseAirAttack") {
+        if (first.airbaseBaseNo) return `第${first.airbaseBaseNo}基地航空隊 第${waveIdx + 1}波`;
+        return `基地航空隊 第${waveIdx + 1}波`;
+      }
+      return batches.length > 1 ? `第${waveIdx + 1}波` : undefined;
+    })();
+
+    for (const side of ["friend", "enemy"] as const) {
+      const sideRows = resolved.filter((r) => r.ev.attackerSide === side);
+      if (sideRows.length === 0) continue;
+      const sample = sideRows[0]!.ev;
+      const group = Array.isArray(sample.attackerGroup)
+        ? sample.attackerGroup.filter((v) => Number.isFinite(Number(v)) && Number(v) >= 0)
+        : [];
+      const planeIds = toPositiveIds(sample.slotItems);
+      const targets: SalvoTargetRow[] = sideRows
+        .filter((r) => r.ev.defenderIdx !== null && r.beforeHp !== null && r.afterHp !== null)
+        .map((r) => {
+          const defIdx = r.ev.defenderIdx as number;
+          const mHp = maxHpForShip(r.ev.defenderSide, defIdx, r.beforeHp, fleets);
+          const tr = transitionState(r.beforeHp, r.afterHp, mHp);
+          return {
+            defenderIdx: defIdx,
+            damage: r.ev.damage,
+            crit: r.ev.crit,
+            sunk: r.ev.sunk || tr.sunk,
+            beforeHp: r.beforeHp,
+            afterHp: r.afterHp,
+            maxHp: mHp,
+            afterState: tr.afterState,
+          };
+        });
+
+      const salvoLabel =
+        key === "AirBaseAssult"
+          ? "基地噴式強襲"
+          : key === "CarrierBaseAssault"
+            ? "空母噴式強襲"
+            : key === "AirBaseAirAttack"
+              ? "基地航空攻撃"
+              : side === "friend"
+                ? "味方航空攻撃"
+                : "敵航空攻撃";
+
+      salvos.push({
+        id: `${key}-${waveIdx}-${side}`,
+        ...(waveLabelPrefix !== undefined && side === "friend" ? { waveTitle: waveLabelPrefix } : {}),
+        ...(waveSprite && side === "friend" ? { waveSprite } : {}),
+        actorRole: sample.actorRole ?? (isAirbaseInvolvedPhaseKey(key) ? "airbase" : "main"),
+        attackerSide: side,
+        attackerIndices: group,
+        attackerMstShipIds: sample.attackerMstShipId ? [sample.attackerMstShipId] : [],
+        attackerPlaneIds: planeIds,
+        defenderSide: side === "friend" ? "enemy" : "friend",
+        salvoLabel,
+        totalDmg: targets.reduce((s, t) => s + t.damage, 0),
+        targets,
+      });
+    }
+  });
+
+  return salvos;
+}
+
+function buildSalvoForSupportPhase(
+  key: string,
+  events: TimelineEvent[],
+  fleets: BattleFleets | null,
+): SalvoBlock[] {
+  const valid = events.filter((ev) => ev.separator !== true);
+  if (valid.length === 0) return [];
+  const first = valid[0]!;
+  const eState = Array.isArray(first.eHps)
+    ? first.eHps.map((v) => normalizeNullableNumber(v))
+    : [];
+
+  const shipIds: number[] = [];
+  const targets: SalvoTargetRow[] = [];
+
+  for (const ev of valid) {
+    if (ev.attackerMstShipId && !shipIds.includes(ev.attackerMstShipId)) {
+      shipIds.push(ev.attackerMstShipId);
+    }
+    if (ev.defenderIdx === null) continue;
+    const beforeHp = eState[ev.defenderIdx] ?? null;
+    const afterHp =
+      beforeHp === null ? null : Math.max(0, beforeHp - Math.max(0, ev.damage));
+    if (afterHp !== null) eState[ev.defenderIdx] = afterHp;
+    const mHp = maxHpForShip("enemy", ev.defenderIdx, beforeHp, fleets);
+    const tr = transitionState(beforeHp, afterHp, mHp);
+    targets.push({
+      defenderIdx: ev.defenderIdx,
+      damage: ev.damage,
+      crit: ev.crit,
+      sunk: ev.sunk || tr.sunk,
+      beforeHp,
+      afterHp,
+      maxHp: mHp,
+      afterState: tr.afterState,
+    });
+  }
+
+  return [
+    {
+      id: `${key}-salvo`,
+      actorRole: "support",
+      attackerSide: "friend",
+      attackerIndices: [],
+      attackerMstShipIds: shipIds,
+      attackerPlaneIds: [],
+      defenderSide: "enemy",
+      salvoLabel: key === "NightSupportAttack" ? "夜間支援砲撃" : "砲撃支援",
+      totalDmg: targets.reduce((s, t) => s + t.damage, 0),
+      targets,
+    },
+  ];
+}
+
+// ── Exported Component (Variant 3: Unified Dense Matrix + Phase Tabs + Inline Drawer) ─
 
 export default function BattlePhaseView(props: {
   battle: Record<string, unknown>;
@@ -1218,28 +1029,225 @@ export default function BattlePhaseView(props: {
   mstShipById: Map<number, MstShipRecord> | null;
   showLegacyAirbasePhaseWarning?: boolean;
 }): JSX.Element {
-  const phases = () =>
-    extractPhaseEntries(props.battle);
-  const destructionBattle = () =>
-    (props.battle["destruction_battle"] as Record<string, unknown> | null) ?? null;
-  const isReconOrPeaceCell = () =>
-    phases().length === 0 &&
-    !destructionBattle() &&
-    (!props.fleets?.enemyShips || props.fleets.enemyShips.length === 0);
+  const [selectedPhaseKey, setSelectedPhaseKey] = createSignal<string>("ALL");
+  const [expandedRowId, setExpandedRowId] = createSignal<string | null>(null);
+
+  const timelineEvents = createMemo(() =>
+    buildTimelineEvents(props.battle, props.fleets),
+  );
+
+  const destructionBattle = createMemo(
+    () => jsonRecordOf(props.battle["destruction_battle"]),
+  );
+
+  const phaseSections = createMemo<PhaseSection[]>(() => {
+    const entries = extractPhaseEntries(props.battle);
+    const allEvs = timelineEvents();
+    let seq = 0;
+
+    return entries.map((entry, entryIdx) => {
+      const key = Object.keys(entry.type)[0] ?? "";
+      const title = PHASE_NAMES[key] ?? key;
+      const phaseEvs = allEvs.filter(
+        (ev) => ev.phase === title && ev.separator !== true,
+      );
+      const tactics = extractPhaseTactics(key, props.battle, entry.data);
+
+      let salvos: SalvoBlock[] = [];
+      let actions: ResolvedActionRow[] = [];
+
+      if (
+        key === "OpeningAirAttack" ||
+        key === "AirBaseAirAttack" ||
+        key === "AirBaseAssult" ||
+        key === "CarrierBaseAssault"
+      ) {
+        salvos = buildSalvosForAirPhase(key, phaseEvs, entry.data, props.fleets);
+      } else if (key === "SupportAttack" || key === "NightSupportAttack") {
+        salvos = buildSalvoForSupportPhase(key, phaseEvs, props.fleets);
+      } else {
+        const first = phaseEvs[0];
+        const fState = Array.isArray(first?.fHps)
+          ? first!.fHps.map((v) => normalizeNullableNumber(v))
+          : [];
+        const eState = Array.isArray(first?.eHps)
+          ? first!.eHps.map((v) => normalizeNullableNumber(v))
+          : [];
+
+        actions = phaseEvs.map((ev) => {
+          const defPool = ev.defenderSide === "friend" ? fState : eState;
+          const beforeHp =
+            ev.defenderIdx !== null ? (defPool[ev.defenderIdx] ?? null) : null;
+          const afterHp =
+            beforeHp === null ? null : Math.max(0, beforeHp - Math.max(0, ev.damage));
+          if (ev.defenderIdx !== null && afterHp !== null) {
+            defPool[ev.defenderIdx] = afterHp;
+          }
+          const mHp =
+            ev.defenderIdx !== null
+              ? maxHpForShip(ev.defenderSide, ev.defenderIdx, beforeHp, props.fleets)
+              : null;
+          const tr =
+            beforeHp !== null && afterHp !== null
+              ? transitionState(beforeHp, afterHp, mHp)
+              : { sunk: false, afterState: "" };
+          const group = Array.isArray(ev.attackerGroup)
+            ? ev.attackerGroup.filter((v) => Number.isFinite(Number(v)) && Number(v) >= 0)
+            : [];
+          const attackerIndices =
+            ev.attackerIdx !== null ? [ev.attackerIdx] : group;
+          const slotIds = toPositiveIds(ev.slotItems);
+          const attackTag =
+            key === "OpeningTaisen"
+              ? "先制対潜"
+              : key === "OpeningRaigeki"
+                ? "先制雷撃"
+                : key === "ClosingRaigeki"
+                  ? attackerIndices.length > 1
+                    ? `集中雷撃 (${attackerIndices.length}隻)`
+                    : "雷撃"
+                  : key === "FriendlyForceAttack"
+                    ? "友軍攻撃"
+                    : key === "MidnightHougeki"
+                      ? "夜戦攻撃"
+                      : "砲撃";
+
+          return {
+            id: `${key}-${++seq}`,
+            seq,
+            phaseKey: key,
+            phaseName: title,
+            actorRole: ev.actorRole ?? "main",
+            attackerSide: ev.attackerSide,
+            attackerIndices,
+            attackerMstShipId: ev.attackerMstShipId ?? null,
+            defenderSide: ev.defenderSide,
+            defenderIdx: ev.defenderIdx,
+            damage: ev.damage,
+            crit: ev.crit,
+            // Single-ship shelling only; salvo / torpedo / air attacks never show cover.
+            protect: false,
+            sunk: ev.sunk || tr.sunk,
+            beforeHp,
+            afterHp,
+            maxHp: mHp,
+            afterState: tr.afterState,
+            slotIds,
+            attackTag,
+          };
+        });
+      }
+
+      let toEnemy = actions
+        .filter((a) => a.defenderSide === "enemy")
+        .reduce((s, a) => s + a.damage, 0);
+      let toFriend = actions
+        .filter((a) => a.defenderSide === "friend")
+        .reduce((s, a) => s + a.damage, 0);
+      let sunkEnemy = actions.filter((a) => a.defenderSide === "enemy" && a.sunk).length;
+
+      for (const sv of salvos) {
+        if (sv.defenderSide === "enemy") {
+          toEnemy += sv.totalDmg;
+          sunkEnemy += sv.targets.filter((t) => t.sunk).length;
+        } else {
+          toFriend += sv.totalDmg;
+        }
+      }
+
+      return {
+        id: `${key}-${entryIdx}`,
+        key,
+        title,
+        tactics,
+        salvos,
+        actions,
+        toEnemy,
+        toFriend,
+        sunkEnemy,
+        showLegacyWarning:
+          !!props.showLegacyAirbasePhaseWarning && isAirbaseInvolvedPhaseKey(key),
+      };
+    });
+  });
+
+  const visibleSections = createMemo(() => {
+    const sel = selectedPhaseKey();
+    if (sel === "ALL") return phaseSections();
+    return phaseSections().filter((s) => s.key === sel);
+  });
+
+  const isReconOrPeaceCell = createMemo(
+    () =>
+      phaseSections().length === 0 &&
+      !destructionBattle() &&
+      (!props.fleets?.enemyShips || props.fleets.enemyShips.length === 0),
+  );
+
+  const renderSalvoAttackers = (salvo: SalvoBlock): JSX.Element => {
+    if (salvo.attackerPlaneIds.length > 0) {
+      return (
+        <div class="flex flex-col gap-1">
+          <For each={salvo.attackerPlaneIds}>
+            {(slotId, idx) => (
+              <DensePlaneRow
+                slotId={slotId}
+                index={idx()}
+                mstSlotItemById={props.mstSlotItemById}
+              />
+            )}
+          </For>
+        </div>
+      );
+    }
+    if (salvo.attackerIndices.length > 0) {
+      return (
+        <div class="flex flex-col gap-1">
+          <For each={salvo.attackerIndices}>
+            {(shipIdx) => (
+              <DenseShipCell
+                name={shipNameFromIndex(salvo.attackerSide, shipIdx, props.fleets)}
+                bannerSrc={shipBannerForIndex(salvo.attackerSide, shipIdx, props.fleets)}
+                prefix={salvo.attackerSide === "friend" ? `F${shipIdx + 1}` : `E${shipIdx + 1}`}
+                prefixTone={salvo.attackerSide === "friend" ? "info" : "error"}
+              />
+            )}
+          </For>
+        </div>
+      );
+    }
+    if (salvo.attackerMstShipIds.length > 0) {
+      return (
+        <div class="flex flex-col gap-1">
+          <For each={salvo.attackerMstShipIds}>
+            {(mstId, idx) => {
+              const name =
+                mstShipNameFromId(props.mstShipById, mstId) ?? `艦ID:${mstId}`;
+              return (
+                <DenseShipCell
+                  name={name}
+                  bannerSrc={bannerForMstShipId(mstId)}
+                  prefix={salvo.actorRole === "support" ? `支${idx() + 1}` : `友${idx() + 1}`}
+                  prefixTone={salvo.actorRole === "support" ? "warning" : "success"}
+                />
+              );
+            }}
+          </For>
+        </div>
+      );
+    }
+    return <span class="text-xs text-base-content/55">{salvo.salvoLabel}</span>;
+  };
 
   return (
     <Show
-      when={phases().length > 0 || !!destructionBattle()}
+      when={phaseSections().length > 0 || !!destructionBattle()}
       fallback={
         <Show
           when={isReconOrPeaceCell()}
-          fallback={
-            <div class="text-center text-base-content/40 py-8">
-              戦闘フェーズ情報がありません
-            </div>
-          }
+          fallback={<EmptyState message="戦闘フェーズ情報がありません" size="compact" />}
         >
-          <div class="rounded-lg border border-base-content/10 bg-base-200/40 p-6 text-center">
+          <div class="rounded-xl border border-base-300/75 bg-base-200/40 p-6 text-center">
             <div class="badge badge-outline badge-info mb-2 text-xs">航空偵察 / 非戦闘マス</div>
             <p class="text-sm font-medium text-base-content/80">
               このマスは航空偵察または非戦闘セルのため、砲撃戦・雷撃戦などの戦闘フェーズは発生していません。
@@ -1251,26 +1259,600 @@ export default function BattlePhaseView(props: {
         </Show>
       }
     >
-      <div class="space-y-4">
-        <Show when={destructionBattle()}>{(db) => <DestructionBattleCard data={db()} />}</Show>
-        <For each={phases()}>
-          {(entry) => (
-            <PhaseCard
-              battle={props.battle}
-              phaseType={entry.type}
-              phaseData={entry.data}
-              fleets={props.fleets}
-              mstSlotItemById={props.mstSlotItemById}
-              mstShipById={props.mstShipById}
-              {...(props.showLegacyAirbasePhaseWarning === undefined
-                ? {}
-                : {
-                    showLegacyAirbasePhaseWarning:
-                      props.showLegacyAirbasePhaseWarning,
-                  })}
-            />
-          )}
-        </For>
+      <div class="space-y-3">
+        {/* Destruction Battle (基地空襲) */}
+        <Show when={destructionBattle()}>
+          {(db) => {
+            const airSup = () => readNum(db(), "air_superiority") ?? -1;
+            const lostKind = () => readNum(db(), "lost_kind");
+            const spriteCounts = () => readSpriteCounts(db());
+            return (
+              <div class="rounded-xl border border-base-300/75 bg-base-100 overflow-hidden">
+                <div class="px-3.5 py-2 border-b border-base-300/75 bg-base-200/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span class="font-semibold">基地空襲</span>
+                  <div class="flex flex-wrap items-center gap-3">
+                    <Show when={AIR_STATE[airSup()]}>
+                      {(as) => (
+                        <span>
+                          <span class="text-base-content/55 mr-1">制空:</span>
+                          <span class={`font-semibold ${as().cls}`}>{as().label}</span>
+                        </span>
+                      )}
+                    </Show>
+                    <span>
+                      <span class="text-base-content/55 mr-1">被害:</span>
+                      <span>{destructionLostKindLabel(lostKind())}</span>
+                    </span>
+                  </div>
+                </div>
+                <Show when={spriteCounts()}>
+                  {(sc) => (
+                    <div class="px-3.5 py-2 text-xs text-base-content/80">
+                      <SpriteMotionCounts counts={sc()} />
+                    </div>
+                  )}
+                </Show>
+              </div>
+            );
+          }}
+        </Show>
+
+        {/* Unified Dense Matrix Card (Variant 3) */}
+        <Show when={phaseSections().length > 0}>
+          <div class="rounded-xl border border-base-300/75 bg-base-100 overflow-hidden">
+            {/* Phase Filter Tab Strip */}
+            <div class="px-3 py-2 border-b border-base-300/75 bg-base-200/50 flex items-center gap-1 overflow-x-auto">
+              <button
+                type="button"
+                class={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors whitespace-nowrap cursor-pointer inline-flex items-center gap-1.5 ${
+                  selectedPhaseKey() === "ALL"
+                    ? "bg-base-100 border-base-300 text-base-content"
+                    : "bg-transparent border-transparent text-base-content/60 hover:text-base-content"
+                }`}
+                onClick={() => setSelectedPhaseKey("ALL")}
+              >
+                <span>全フェーズ</span>
+                <span class="font-mono tabular-nums text-[10px] text-base-content/50">
+                  {phaseSections().length}
+                </span>
+              </button>
+              <For each={phaseSections()}>
+                {(sec) => {
+                  const count = () => sec.actions.length + sec.salvos.length;
+                  const active = () => selectedPhaseKey() === sec.key;
+                  return (
+                    <button
+                      type="button"
+                      class={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors whitespace-nowrap cursor-pointer inline-flex items-center gap-1.5 ${
+                        active()
+                          ? "bg-base-100 border-base-300 text-base-content"
+                          : "bg-transparent border-transparent text-base-content/60 hover:text-base-content"
+                      }`}
+                      onClick={() => setSelectedPhaseKey(sec.key)}
+                    >
+                      <span>{sec.title}</span>
+                      <span class="font-mono tabular-nums text-[10px] text-base-content/50">
+                        {count()}
+                      </span>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+
+            {/* Unified 7-Column Matrix Table (responsive: zero horizontal scroll on mobile) */}
+            <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse">
+                <thead>
+                  <tr class="text-[11px] font-medium border-b border-base-300/75 bg-base-200/40 text-base-content/55">
+                    <th class="hidden md:table-cell py-1.5 pl-3 pr-2 w-14">#</th>
+                    <th class="py-1.5 pl-2 pr-1 md:px-2 w-[80px] sm:w-[132px] lg:w-[235px]">攻撃側</th>
+                    <th class="py-1.5 px-1 md:px-2">
+                      <span class="md:hidden">装備</span>
+                      <span class="hidden md:inline">装備 / 種別</span>
+                    </th>
+                    <th class="py-1.5 px-0.5 md:px-1 w-4 md:w-6" />
+                    <th class="py-1.5 px-1 md:px-2 w-[80px] sm:w-[132px] lg:w-[235px]">防御側</th>
+                    <th class="py-1.5 px-1 md:px-2 w-[76px] md:w-[176px]">
+                      <span class="md:hidden">残HP</span>
+                      <span class="hidden md:inline">残HP推移</span>
+                    </th>
+                    <th class="py-1.5 pl-1 pr-2 md:pl-2 md:pr-3 w-[52px] md:w-[72px] text-right">
+                      <span class="md:hidden">ダメ</span>
+                      <span class="hidden md:inline">ダメージ</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={visibleSections()}>
+                    {(sec) => (
+                      <>
+                        {/* Phase Divider Band */}
+                        <tr class="bg-base-200/70 border-t border-base-300/75">
+                          <td colspan={7} class="py-1.5 px-3">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                              <span class="text-xs font-semibold text-base-content">
+                                {sec.title}
+                              </span>
+                              <div class="inline-grid grid-cols-[4.5rem_4.5rem_3.75rem] items-center gap-2 font-mono tabular-nums text-[11px] text-right">
+                                <span class="text-info">与:{sec.toEnemy}</span>
+                                <span
+                                  class={
+                                    sec.toFriend > 0
+                                      ? "text-error"
+                                      : "text-base-content/45"
+                                  }
+                                >
+                                  被:{sec.toFriend}
+                                </span>
+                                <span
+                                  class={
+                                    sec.sunkEnemy > 0
+                                      ? "text-success"
+                                      : "text-base-content/35"
+                                  }
+                                >
+                                  {sec.sunkEnemy > 0 ? `撃沈:${sec.sunkEnemy}` : ""}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Legacy Airbase Warning */}
+                        <Show when={sec.showLegacyWarning}>
+                          <tr>
+                            <td colspan={7} class="px-3 py-2 bg-base-100">
+                              <AlertMessage type="warning">
+                                この基地航空隊フェーズは table_version 0.6.0 未満の既知不具合により、参照解決結果が正確でない可能性があります。
+                              </AlertMessage>
+                            </td>
+                          </tr>
+                        </Show>
+
+                        {/* Phase Tactical Strip (AirState / Touch / AACI / Flare / SpriteMotionCounts) */}
+                        <Show when={sec.tactics}>
+                          <tr>
+                            <td colspan={7} class="p-0">
+                              <PhaseTacticalStrip
+                                tactics={sec.tactics}
+                                fleets={props.fleets}
+                                mstSlotItemById={props.mstSlotItemById}
+                              />
+                            </td>
+                          </tr>
+                        </Show>
+
+                        {/* Coordinated Salvo Rows (Support, Night Support, Air Attacks, Jet Assaults) */}
+                        <For each={sec.salvos}>
+                          {(salvo) => (
+                            <>
+                              <Show when={salvo.waveTitle || salvo.waveSprite}>
+                                <tr class="bg-base-200/35 border-t border-base-300/60">
+                                  <td colspan={7} class="py-1 px-3">
+                                    <div class="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                                      <span class="font-medium text-base-content/75">
+                                        {salvo.waveTitle ?? ""}
+                                      </span>
+                                      <Show when={salvo.waveSprite}>
+                                        {(sc) => (
+                                          <span class="text-base-content/70">
+                                            <SpriteMotionCounts counts={sc()} />
+                                          </span>
+                                        )}
+                                      </Show>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </Show>
+                              <tr
+                                class={`border-t border-base-300/60 ${
+                                  salvo.attackerSide === "enemy" ? "bg-error/5" : ""
+                                }`}
+                              >
+                                <td class="hidden md:table-cell py-2 pl-3 pr-2 font-mono text-[11px] whitespace-nowrap align-middle text-base-content/45">
+                                  一斉
+                                </td>
+                                <td class="py-1.5 md:py-2 pl-2 pr-1 md:px-2 align-middle">
+                                  {renderSalvoAttackers(salvo)}
+                                </td>
+                                <td class="py-1.5 md:py-2 px-1 md:px-2 align-middle">
+                                  <div class="text-[10px] md:text-xs leading-tight text-base-content/80">
+                                    {salvo.salvoLabel}
+                                  </div>
+                                  <div class="hidden md:block font-mono tabular-nums text-[10px] mt-0.5 text-base-content/50">
+                                    {salvo.targets.length}隻対象 / 計 -{salvo.totalDmg}
+                                  </div>
+                                </td>
+                                <td class="py-1.5 md:py-2 px-0.5 md:px-1 text-center font-mono text-[10px] md:text-xs align-middle text-base-content/45">
+                                  →
+                                </td>
+                                <td class="py-1.5 md:py-2 px-1 md:px-2 align-middle">
+                                  <Show
+                                    when={salvo.targets.length > 0}
+                                    fallback={
+                                      <div class="h-6 sm:h-7 flex items-center text-xs text-base-content/45">
+                                        対象なし
+                                      </div>
+                                    }
+                                  >
+                                    <div class="flex flex-col gap-1">
+                                      <For each={salvo.targets}>
+                                        {(t) => (
+                                          <DenseShipCell
+                                            name={shipNameFromIndex(
+                                              salvo.defenderSide,
+                                              t.defenderIdx as number,
+                                              props.fleets,
+                                            )}
+                                            bannerSrc={shipBannerForIndex(
+                                              salvo.defenderSide,
+                                              t.defenderIdx as number,
+                                              props.fleets,
+                                            )}
+                                            prefix={
+                                              salvo.defenderSide === "friend"
+                                                ? `F${(t.defenderIdx as number) + 1}`
+                                                : `E${(t.defenderIdx as number) + 1}`
+                                            }
+                                            prefixTone={
+                                              salvo.defenderSide === "friend"
+                                                ? "info"
+                                                : "error"
+                                            }
+                                            sunk={t.sunk}
+                                          />
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                </td>
+                                <td class="py-1.5 md:py-2 px-1 md:px-2 whitespace-nowrap align-middle">
+                                  <Show
+                                    when={salvo.targets.length > 0}
+                                    fallback={
+                                      <div class="h-6 sm:h-7 flex items-center text-[11px] text-base-content/40">
+                                        -
+                                      </div>
+                                    }
+                                  >
+                                    <div class="flex flex-col gap-1">
+                                      <For each={salvo.targets}>
+                                        {(t) => (
+                                          <div class="h-6 sm:h-7 flex items-center">
+                                            <HpDeltaBar
+                                              before={t.beforeHp}
+                                              after={t.afterHp}
+                                              max={t.maxHp}
+                                              layout="responsive"
+                                            />
+                                          </div>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                </td>
+                                <td class="py-1.5 md:py-2 pl-1 pr-2 md:pl-2 md:pr-3 text-right whitespace-nowrap align-middle">
+                                  <Show
+                                    when={salvo.targets.length > 0}
+                                    fallback={
+                                      <div class="h-6 sm:h-7 flex items-center justify-end">
+                                        <FixedOutcomeCell
+                                          damage={0}
+                                          crit={false}
+                                          protect={false}
+                                          sunk={false}
+                                          afterState=""
+                                        />
+                                      </div>
+                                    }
+                                  >
+                                    <div class="flex flex-col gap-1">
+                                      <For each={salvo.targets}>
+                                        {(t) => (
+                                          <div class="h-6 sm:h-7 flex items-center justify-end">
+                                            <FixedOutcomeCell
+                                              damage={t.damage}
+                                              crit={t.crit}
+                                              protect={false}
+                                              sunk={t.sunk}
+                                              afterState={t.afterState}
+                                            />
+                                          </div>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                </td>
+                              </tr>
+                            </>
+                          )}
+                        </For>
+
+                        {/* Individual Action Rows (1-line fixed rhythm + click-to-expand drawer) */}
+                        <For each={sec.actions}>
+                          {(row) => {
+                            const isExpanded = () => expandedRowId() === row.id;
+                            const isFriendlyForce = () =>
+                              row.actorRole === "friendly_force" &&
+                              row.attackerSide === "friend";
+
+                            return (
+                              <>
+                                <tr
+                                  class={`border-t border-base-300/60 cursor-pointer transition-colors hover:bg-base-200/50 ${
+                                    isExpanded()
+                                      ? "bg-primary/10"
+                                      : row.attackerSide === "enemy"
+                                        ? "bg-error/5"
+                                        : row.sunk
+                                          ? "bg-base-200/35"
+                                          : ""
+                                  }`}
+                                  onClick={() =>
+                                    setExpandedRowId(isExpanded() ? null : row.id)
+                                  }
+                                >
+                                  <td
+                                    class={`hidden md:table-cell py-1.5 pl-3 pr-2 font-mono tabular-nums text-[11px] whitespace-nowrap align-middle ${
+                                      isExpanded()
+                                        ? "text-primary font-semibold"
+                                        : "text-base-content/45"
+                                    }`}
+                                  >
+                                    <span class="inline-block w-3 text-[9px]">
+                                      {isExpanded() ? "▾" : "▸"}
+                                    </span>
+                                    {String(row.seq).padStart(2, "0")}
+                                  </td>
+                                  <td class="py-1.5 pl-2 pr-1 md:px-2 align-middle">
+                                    <Show
+                                      when={row.attackerIndices.length > 0}
+                                      fallback={
+                                        <Show
+                                          when={row.attackerMstShipId}
+                                          fallback={
+                                            <span class="text-xs text-base-content/55">
+                                              {row.attackTag}
+                                            </span>
+                                          }
+                                        >
+                                          {(mstId) => (
+                                            <DenseShipCell
+                                              name={
+                                                mstShipNameFromId(
+                                                  props.mstShipById,
+                                                  mstId(),
+                                                ) ?? `艦ID:${mstId()}`
+                                              }
+                                              bannerSrc={bannerForMstShipId(mstId())}
+                                              prefix={isFriendlyForce() ? "友" : "支"}
+                                              prefixTone={
+                                                isFriendlyForce() ? "success" : "warning"
+                                              }
+                                            />
+                                          )}
+                                        </Show>
+                                      }
+                                    >
+                                      <div class="flex flex-col gap-1">
+                                        <For each={row.attackerIndices}>
+                                          {(shipIdx) => (
+                                            <DenseShipCell
+                                              name={
+                                                isFriendlyForce() && row.attackerMstShipId
+                                                  ? (mstShipNameFromId(
+                                                      props.mstShipById,
+                                                      row.attackerMstShipId,
+                                                    ) ??
+                                                    shipNameFromIndex(
+                                                      row.attackerSide,
+                                                      shipIdx,
+                                                      props.fleets,
+                                                    ))
+                                                  : shipNameFromIndex(
+                                                      row.attackerSide,
+                                                      shipIdx,
+                                                      props.fleets,
+                                                    )
+                                              }
+                                              bannerSrc={
+                                                isFriendlyForce() && row.attackerMstShipId
+                                                  ? bannerForMstShipId(row.attackerMstShipId)
+                                                  : shipBannerForIndex(
+                                                      row.attackerSide,
+                                                      shipIdx,
+                                                      props.fleets,
+                                                    )
+                                              }
+                                              prefix={
+                                                isFriendlyForce()
+                                                  ? `友${shipIdx + 1}`
+                                                  : row.attackerSide === "friend"
+                                                    ? `F${shipIdx + 1}`
+                                                    : `E${shipIdx + 1}`
+                                              }
+                                              prefixTone={
+                                                isFriendlyForce()
+                                                  ? "success"
+                                                  : row.attackerSide === "friend"
+                                                    ? "info"
+                                                    : "error"
+                                              }
+                                            />
+                                          )}
+                                        </For>
+                                      </div>
+                                    </Show>
+                                  </td>
+                                  <td class="py-1.5 px-1 md:px-2 max-w-[100px] md:max-w-[230px] align-middle">
+                                    <SingleLineEquipmentCell
+                                      slotIds={row.slotIds}
+                                      fallbackTag={row.attackTag}
+                                      mstSlotItemById={props.mstSlotItemById}
+                                    />
+                                  </td>
+                                  <td class="py-1.5 px-0.5 md:px-1 text-center font-mono text-[10px] md:text-xs align-middle text-base-content/45">
+                                    →
+                                  </td>
+                                  <td class="py-1.5 px-1 md:px-2 align-middle">
+                                    <Show
+                                      when={row.defenderIdx !== null}
+                                      fallback={
+                                        <span class="text-xs text-base-content/45">
+                                          対象なし
+                                        </span>
+                                      }
+                                    >
+                                      <DenseShipCell
+                                        name={shipNameFromIndex(
+                                          row.defenderSide,
+                                          row.defenderIdx as number,
+                                          props.fleets,
+                                        )}
+                                        bannerSrc={shipBannerForIndex(
+                                          row.defenderSide,
+                                          row.defenderIdx as number,
+                                          props.fleets,
+                                        )}
+                                        prefix={
+                                          row.defenderSide === "friend"
+                                            ? `F${(row.defenderIdx as number) + 1}`
+                                            : `E${(row.defenderIdx as number) + 1}`
+                                        }
+                                        prefixTone={
+                                          row.defenderSide === "friend" ? "info" : "error"
+                                        }
+                                        sunk={row.sunk}
+                                      />
+                                    </Show>
+                                  </td>
+                                  <td class="py-1.5 px-1 md:px-2 whitespace-nowrap align-middle">
+                                    <Show
+                                      when={row.beforeHp !== null && row.afterHp !== null}
+                                      fallback={
+                                        <span class="text-[11px] text-base-content/40">-</span>
+                                      }
+                                    >
+                                      <HpDeltaBar
+                                        before={row.beforeHp}
+                                        after={row.afterHp}
+                                        max={row.maxHp}
+                                        layout="responsive"
+                                      />
+                                    </Show>
+                                  </td>
+                                  <td class="py-1.5 pl-1 pr-2 md:pl-2 md:pr-3 text-right whitespace-nowrap align-middle">
+                                    <FixedOutcomeCell
+                                      damage={row.damage}
+                                      crit={row.crit}
+                                      protect={row.protect}
+                                      sunk={row.sunk}
+                                      afterState={row.afterState}
+                                    />
+                                  </td>
+                                </tr>
+
+                                {/* Inline Detail Drawer on Row Click */}
+                                <Show when={isExpanded()}>
+                                  <tr class="bg-base-200/45 border-t border-primary/30">
+                                    <td colspan={7} class="px-4 py-2.5">
+                                      <div class="grid grid-cols-1 md:grid-cols-[1.5fr_1fr] gap-3 text-xs">
+                                        <div>
+                                          <div class="text-[11px] text-base-content/55 mb-1.5">
+                                            使用装備 ({row.slotIds.length})
+                                          </div>
+                                          <Show
+                                            when={row.slotIds.length > 0}
+                                            fallback={
+                                              <span class="text-[11px] text-base-content/45">
+                                                {row.attackTag}
+                                              </span>
+                                            }
+                                          >
+                                            <div class="flex flex-wrap gap-1.5">
+                                              <For each={row.slotIds}>
+                                                {(slotId, idx) => {
+                                                  const meta = createMemo(() =>
+                                                    slotItemMeta(
+                                                      slotId,
+                                                      props.mstSlotItemById,
+                                                    ),
+                                                  );
+                                                  return (
+                                                    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-base-300 bg-base-100 text-[11px] text-base-content">
+                                                      <span class="font-mono text-[10px] text-base-content/50">
+                                                        #{idx() + 1}
+                                                      </span>
+                                                      <WeaponIcon iconType={meta().iconType} />
+                                                      <span>
+                                                        {meta().name || `装備#${slotId}`}
+                                                      </span>
+                                                    </span>
+                                                  );
+                                                }}
+                                              </For>
+                                            </div>
+                                          </Show>
+                                        </div>
+                                        <div>
+                                          <div class="text-[11px] text-base-content/55 mb-1.5">
+                                            命中・HP詳細
+                                          </div>
+                                          <div class="font-mono tabular-nums text-[11px] text-base-content">
+                                            {row.damage > 0 ? `-${row.damage}` : "MISS"}
+                                            {row.crit ? " [CRIT]" : ""}
+                                            {row.sunk ? " [撃沈]" : ""}
+                                          </div>
+                                          <Show
+                                            when={
+                                              row.defenderIdx !== null &&
+                                              row.beforeHp !== null &&
+                                              row.afterHp !== null
+                                            }
+                                          >
+                                            <div class="font-mono tabular-nums text-[11px] mt-1 text-base-content/60">
+                                              {shipNameFromIndex(
+                                                row.defenderSide,
+                                                row.defenderIdx as number,
+                                                props.fleets,
+                                              )}
+                                              : HP {formatNullableNumber(row.beforeHp)} →{" "}
+                                              {formatNullableNumber(row.afterHp)} /{" "}
+                                              {formatNullableNumber(
+                                                row.maxHp ?? row.beforeHp,
+                                              )}
+                                            </div>
+                                          </Show>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </Show>
+                              </>
+                            );
+                          }}
+                        </For>
+
+                        {/* Empty phase fallback */}
+                        <Show when={sec.salvos.length === 0 && sec.actions.length === 0}>
+                          <tr class="border-t border-base-300/60">
+                            <td
+                              colspan={7}
+                              class="py-3 px-3 text-center text-xs text-base-content/45"
+                            >
+                              {sec.title}: 有効打なし
+                            </td>
+                          </tr>
+                        </Show>
+                      </>
+                    )}
+                  </For>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Show>
       </div>
     </Show>
   );

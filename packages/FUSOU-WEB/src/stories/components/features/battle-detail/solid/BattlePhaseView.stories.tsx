@@ -19,3 +19,7 @@ export const AirOperations = {
 export const NightBattle = {
   args: createStorybookBattleViewArgs("night-battle"),
 };
+
+export const AllPhases = {
+  args: createStorybookBattleViewArgs("all-phases"),
+};

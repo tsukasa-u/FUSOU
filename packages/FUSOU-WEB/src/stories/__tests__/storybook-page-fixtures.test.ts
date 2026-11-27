@@ -185,6 +185,15 @@ describe("Storybook page API fixtures", () => {
     expect([...emittedPhases]).toEqual(
       expect.arrayContaining(Object.values(PHASE_NAMES)),
     );
+
+    const allPhasesDetail = getStorybookBattleScenario("all-phases");
+    const allPhasesEvents = buildTimelineEvents(
+      allPhasesDetail.battle ?? {},
+      null,
+    ).filter((event) => event.type !== "separator");
+    expect([...new Set(allPhasesEvents.map((event) => event.phase))]).toEqual(
+      expect.arrayContaining(Object.values(PHASE_NAMES)),
+    );
   });
 
   it("keeps both battle branches on connected 1-1 route cells", () => {
