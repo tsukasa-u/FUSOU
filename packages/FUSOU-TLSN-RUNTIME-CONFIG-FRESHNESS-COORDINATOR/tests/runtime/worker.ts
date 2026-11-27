@@ -98,6 +98,7 @@ const RPC_METHOD_NAMES = [
   "rejectCompletedSigner",
   "releaseDelayedPointerWriteForLocalTest",
   "rejectCloudflareOperatorIssue",
+  "retireCloudflareOperatorUnknownIssue",
   "restoreCoordinationStateForLocalTest",
   "setClockForLocalTest",
   "setCloudflareOperatorObservedUtcForLocalTest",

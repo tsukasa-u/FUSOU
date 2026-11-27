@@ -51,6 +51,7 @@ export {
 
 const PRIVATE_SERVICE_ORIGIN = "https://freshness-signer.internal";
 const GENESIS_ADMIN_PATH = "/__private/admin/genesis";
+const ISSUE_RECOVERY_PATH = "/__private/admin/issue-retirement";
 const GENESIS_ADMIN_MAX_BODY_BYTES = 2_000_000;
 const GENESIS_ADMIN_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const RELEASE_ADMIN_PATH = "/__private/admin/release";
@@ -91,6 +92,7 @@ const OPERATION_ID_DOMAIN = new TextEncoder().encode(
 const ROOT_SCOPE = "fusou-tlsn-runtime-config-signing-root-v2";
 
 export interface PrivateFreshnessSignerEnv extends CoordinatorEnv {
+  readonly FRESHNESS_ISSUE_RECOVERY_ADMIN_CAPABILITY?: string;
   readonly TLSN_RUNTIME_CONFIG_MANIFEST_URL?: string;
   readonly FRESHNESS_COORDINATOR_NAME?: string;
   readonly FRESHNESS_ISSUE_COORDINATOR?: DurableObjectNamespace<
@@ -734,6 +736,13 @@ async function createDependencies(
       coordinator,
       currentState: stateReader,
       signer,
+      onUnconfirmedIssue({ phase, errorCode }) {
+        console.error(JSON.stringify({
+          event: "private_signer_issue_unconfirmed",
+          phase,
+          error_code: errorCode,
+        }));
+      },
     },
   };
 }
@@ -939,6 +948,76 @@ function hasReleaseAdminCapability(
     difference |= expected.charCodeAt(index) ^ supplied.charCodeAt(index);
   }
   return difference === 0;
+}
+
+async function handleIssueRetirementRequest(
+  request: Request,
+  env: PrivateFreshnessSignerEnv,
+): Promise<Response | null> {
+  const url = new URL(request.url);
+  const lookup = /^\/__private\/admin\/issue-retirement\/([0-9a-f-]{36})\/([A-Za-z0-9_-]{43})$/u.exec(url.pathname);
+  const apply = url.pathname === ISSUE_RECOVERY_PATH;
+  if (!apply && !lookup) return null;
+  if (url.origin !== PRIVATE_SERVICE_ORIGIN || url.search) return jsonResponse(404, "not_found");
+  const method = apply ? "POST" : "GET";
+  if (request.method !== method) {
+    return new Response(null, { status: 405, headers: { allow: method, "cache-control": "no-store" } });
+  }
+  const expected = env.FRESHNESS_ISSUE_RECOVERY_ADMIN_CAPABILITY;
+  const supplied = request.headers.get("x-fusou-issue-recovery-capability");
+  if (!expected || !supplied || !GENESIS_ADMIN_CAPABILITY_PATTERN.test(expected) ||
+      !GENESIS_ADMIN_CAPABILITY_PATTERN.test(supplied) ||
+      !equalBytes(new TextEncoder().encode(expected), new TextEncoder().encode(supplied))) {
+    await cancelRequestBody(request);
+    return jsonResponse(403, "forbidden");
+  }
+  if (!env.FRESHNESS_ISSUE_RECOVERY_KEY_ID || !env.FRESHNESS_ISSUE_RECOVERY_PUBLIC_KEY_SPKI) {
+    return jsonResponse(503, "issue_retirement_unavailable");
+  }
+  let input;
+  if (apply) {
+    const encoding = request.headers.get("content-encoding");
+    if (mediaType(request.headers.get("content-type")) !== "application/json" ||
+        (encoding !== null && encoding.toLowerCase() !== "identity")) {
+      return jsonResponse(415, "unsupported_media_type");
+    }
+    try {
+      const raw = await readBoundedBody(request, 6_144);
+      const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+      if (!value || Object.keys(value).length !== 2 || !equalBytes(raw, canonicalJsonBytes(value))) {
+        return jsonResponse(400, "invalid_issue_retirement");
+      }
+      input = {
+        approvalBytes: decodeBase64Url(value.approval_base64url, "Issue retirement approval", 4_096),
+        signatureBytes: decodeBase64Url(value.signature_base64url, "Issue retirement signature", 64),
+      };
+    } catch (error) {
+      if (error instanceof BoundedBodyError && error.reason === "too-large") {
+        return jsonResponse(413, "request_too_large");
+      }
+      return jsonResponse(400, "invalid_issue_retirement");
+    }
+  } else if (request.body !== null) {
+    await cancelRequestBody(request);
+    return jsonResponse(400, "invalid_request");
+  }
+  try {
+    const { coordinatorNamespace } = requiredBindings(env);
+    const id = coordinatorNamespace.idFromName(requiredString(
+      env.FRESHNESS_COORDINATOR_NAME, "Freshness coordinator identity",
+    ));
+    const stub = coordinatorNamespace.get(id);
+    const result = input !== undefined
+      ? await stub.retireCloudflareOperatorUnknownIssue(input)
+      : await stub.getCloudflareOperatorIssueRetirement(lookup![1]!, lookup![2]!);
+    return Response.json(result, {
+      status: result.status === "RETIRED" ? 200 : result.status === "NOT_FOUND" ? 404 : 409,
+      headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" },
+    });
+  } catch (error) {
+    logFailure("private_signer_issue_retirement_unconfirmed", error);
+    return jsonResponse(503, "issue_retirement_unconfirmed");
+  }
 }
 
 function parseReleaseUpdateRequest(bytes: Uint8Array): ParsedReleaseUpdateRequest {
@@ -1893,6 +1972,8 @@ const privateFreshnessSigner = {
     if (genesisResponse !== null) return genesisResponse;
     const releaseResponse = await handleReleaseManagementRequest(request, env);
     if (releaseResponse !== null) return releaseResponse;
+    const retirementResponse = await handleIssueRetirementRequest(request, env);
+    if (retirementResponse !== null) return retirementResponse;
     return handleFreshnessRequest(request, env, context);
   },
 } satisfies ExportedHandler<PrivateFreshnessSignerEnv>;

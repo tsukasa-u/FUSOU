@@ -65,6 +65,8 @@ import {
   RuntimeConfigR2ReleaseStore,
 } from "./r2-release-store.ts";
 import { cloudflareOperatorGenesisOperationId } from "./genesis-operation-id.ts";
+import { verifyIssueRetirementApproval } from "./issue-recovery.ts";
+import type { IssueRetirementInput, IssueRetirementResult } from "./issue-recovery.ts";
 import type {
   CloudflareOperatorGenesisOperation,
   ReleaseBindingInstallActionResult,
@@ -156,6 +158,8 @@ export interface CoordinatorEnv {
   readonly FRESHNESS_COORDINATOR_NAME?: string;
   readonly FRESHNESS_GENESIS_APPROVAL_JSON?: string;
   readonly FRESHNESS_GENESIS_ADMIN_CAPABILITY?: string;
+  readonly FRESHNESS_ISSUE_RECOVERY_KEY_ID?: string;
+  readonly FRESHNESS_ISSUE_RECOVERY_PUBLIC_KEY_SPKI?: string;
 }
 
 interface CloudflareOperatorGenesisApproval {
@@ -181,6 +185,16 @@ interface CloudflareOperatorGenesisApproval {
   readonly release_root_public_key_spki: string;
   readonly manifest_root_key_id: string;
   readonly manifest_root_public_key_spki: string;
+}
+
+interface IssueRetirementRow {
+  readonly [column: string]: string | number | ArrayBuffer;
+  readonly approval_sha256: string;
+  readonly approval_bytes: ArrayBuffer;
+  readonly signature_bytes: ArrayBuffer;
+  readonly prior_fence: string;
+  readonly replacement_fence: string;
+  readonly retired_at_ms: number;
 }
 
 interface CloudflareOperatorGenesisRow {
@@ -733,6 +747,18 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           );
         CREATE INDEX IF NOT EXISTS cloudflare_operator_issue_blockers
           ON cloudflare_operator_issue_operations(blocker, status);
+        CREATE TABLE IF NOT EXISTS cloudflare_operator_issue_retirements (
+          operation_id TEXT PRIMARY KEY,
+          approved_state_sha256 TEXT NOT NULL,
+          approval_sha256 TEXT NOT NULL,
+          approval_bytes BLOB NOT NULL,
+          signature_bytes BLOB NOT NULL,
+          prior_fence TEXT NOT NULL,
+          replacement_fence TEXT NOT NULL,
+          retired_at_ms INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS cloudflare_operator_retired_state
+          ON cloudflare_operator_issue_retirements(approved_state_sha256);
       `);
       const issueColumns = this.ctx.storage.sql
         .exec<{ readonly name: string }>(
@@ -3300,7 +3326,11 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         releaseOperation === null ||
         releaseOperation.status !== "AVAILABLE" ||
         releaseOperation.fencing_token !== currentState.releaseFencingToken ||
-        !releaseHeadMatchesOperatorBinding(head, currentState)
+        !releaseHeadMatchesOperatorBinding(head, currentState) ||
+        this.sql.exec(
+          "SELECT 1 FROM cloudflare_operator_issue_retirements WHERE approved_state_sha256 = ? LIMIT 1",
+          currentState.stateSha256,
+        ).toArray().length !== 0
       ) {
         return { status: "CONFLICT" as const };
       }
@@ -3553,6 +3583,145 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         this.requireCloudflareOperatorIssue(input.operation.operationId),
       );
     });
+  }
+
+  async retireCloudflareOperatorUnknownIssue(
+    input: IssueRetirementInput,
+  ): Promise<IssueRetirementResult> {
+    const keyId = this.#env.FRESHNESS_ISSUE_RECOVERY_KEY_ID;
+    const publicKeySpki = this.#env.FRESHNESS_ISSUE_RECOVERY_PUBLIC_KEY_SPKI;
+    if (!keyId || !publicKeySpki) {
+      throw invalidInput("Independent Freshness issue retirement authority is not configured");
+    }
+    const releaseRoot = this.requireReleaseRootSigner();
+    const manifestRoot = this.requireManifestRootSigner();
+    if (
+      [releaseRoot.key_id, manifestRoot.key_id].includes(keyId) ||
+      [releaseRoot.public_key_spki, manifestRoot.public_key_spki].includes(publicKeySpki)
+    ) {
+      throw invalidInput("Independent Freshness issue retirement authority is not configured");
+    }
+    const { approval, approvalSha256, raw, signature } =
+      await verifyIssueRetirementApproval(input, { keyId, publicKeySpki });
+    if (approval.coordinator_id !== this.ctx.id.toString() ||
+        approval.chain_id !== this.requireReleaseChainId()) {
+      return { status: "CONFLICT" };
+    }
+
+    return this.ctx.storage.transactionSync(() => {
+      const operationId = approval.operation_id;
+      const receipt = this.findIssueRetirement(operationId);
+      if (receipt !== undefined) {
+        if (
+          receipt.approval_sha256 !== approvalSha256 ||
+          !equalBytes(raw, bytesFromArrayBuffer(receipt.approval_bytes)) ||
+          !equalBytes(signature, bytesFromArrayBuffer(receipt.signature_bytes))
+        ) return { status: "CONFLICT" } as const;
+        return this.issueRetirementResult(operationId, receipt);
+      }
+      const profile = this.requireCloudflareOperatorProfile();
+      const row = this.findCloudflareOperatorIssue(operationId);
+      if (
+        row === null || row.status !== "RESULT_UNKNOWN" || row.blocker !== "RETAINED" ||
+        row.signing_claimed !== 1 || row.response_bytes !== null ||
+        row.response_length !== null || row.response_sha256 !== null ||
+        row.request_sha256 !== approval.request_sha256 || row.fencing_token !== approval.prior_fence ||
+        row.profile_id !== approval.profile_id || row.environment !== approval.environment ||
+        row.chain_id !== approval.chain_id || profile.chain_id !== approval.chain_id ||
+        profile.local_restore_epoch !== approval.restore_epoch || profile.writer_pending !== 0 ||
+        profile.current_state_json === null
+      ) return { status: "CONFLICT" } as const;
+      const installed = decodeCloudflareOperatorBinding(profile.current_state_json);
+      const issueState = decodeCloudflareOperatorBinding(row.current_state_json);
+      const head = this.readReleaseLedgerHeadRow();
+      const release = this.findReleaseOperation(installed.releaseOperationId);
+      if (
+        !sameCloudflareOperatorBinding(installed, issueState) ||
+        installed.stateSha256 !== approval.current_state_sha256 ||
+        head === null || !releaseHeadMatchesOperatorBinding(head, installed) ||
+        release?.status !== "AVAILABLE" || release.fencing_token !== installed.releaseFencingToken ||
+        BigInt(profile.next_fencing_token) < BigInt(row.fencing_token)
+      ) return { status: "CONFLICT" } as const;
+      const now = this.readCloudflareOperatorRuntimeUtc();
+      if (now < profile.last_observed_utc_ms || now < approval.issued_at_ms || now >= approval.expires_at_ms) {
+        return { status: "CONFLICT" } as const;
+      }
+      const replacementFence = incrementCounter(profile.next_fencing_token);
+      this.sql.exec(
+        `UPDATE cloudflare_operator_issue_operations SET status = 'REJECTED', blocker = 'CLEARED',
+           fencing_token = ?, rejection_reason = 'Retired by signed Freshness issue recovery approval'
+         WHERE operation_id = ?`,
+        replacementFence,
+        operationId,
+      );
+      this.sql.exec(
+        "UPDATE freshness_profile SET next_fencing_token = ?, last_observed_utc_ms = ? WHERE singleton = 1",
+        replacementFence,
+        now,
+      );
+      this.sql.exec(
+        `INSERT INTO cloudflare_operator_issue_retirements (
+           operation_id, approved_state_sha256, approval_sha256, approval_bytes, signature_bytes,
+           prior_fence, replacement_fence, retired_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        operationId, installed.stateSha256, approvalSha256, arrayBufferFromBytes(raw),
+        arrayBufferFromBytes(signature), row.fencing_token, replacementFence, now,
+      );
+      return {
+        status: "RETIRED" as const,
+        operationId,
+        approvalSha256,
+        retiredFence: row.fencing_token,
+        replacementFence,
+        retiredAtMs: now,
+      };
+    });
+  }
+
+  async getCloudflareOperatorIssueRetirement(
+    operationId: string,
+    approvalSha256: string,
+  ): Promise<IssueRetirementResult> {
+    assertUuid(operationId, "Freshness issue retirement operation ID");
+    if (!SHA256_BASE64URL_PATTERN.test(approvalSha256)) {
+      throw invalidInput("Freshness issue retirement digest is invalid");
+    }
+    return this.ctx.storage.transactionSync(() => {
+      const receipt = this.findIssueRetirement(operationId);
+      if (receipt === undefined) return { status: "NOT_FOUND" };
+      if (receipt.approval_sha256 !== approvalSha256) return { status: "CONFLICT" };
+      return this.issueRetirementResult(operationId, receipt);
+    });
+  }
+
+  private findIssueRetirement(operationId: string): IssueRetirementRow | undefined {
+    return this.sql.exec<IssueRetirementRow>(
+      `SELECT approval_sha256, approval_bytes, signature_bytes, prior_fence,
+              replacement_fence, retired_at_ms
+       FROM cloudflare_operator_issue_retirements WHERE operation_id = ?`,
+      operationId,
+    ).toArray()[0];
+  }
+
+  private issueRetirementResult(
+    operationId: string,
+    receipt: IssueRetirementRow,
+  ): IssueRetirementResult {
+    const retired = this.findCloudflareOperatorIssue(operationId);
+    if (
+      retired?.status !== "REJECTED" || retired.blocker !== "CLEARED" ||
+      retired.fencing_token !== receipt.replacement_fence ||
+      retired.response_bytes !== null || retired.response_length !== null ||
+      retired.response_sha256 !== null
+    ) throw corruptStorage("Freshness retirement receipt disagrees with the retired issue");
+    return {
+      status: "RETIRED",
+      operationId,
+      approvalSha256: receipt.approval_sha256,
+      retiredFence: receipt.prior_fence,
+      replacementFence: receipt.replacement_fence,
+      retiredAtMs: receipt.retired_at_ms,
+    };
   }
 
   async rejectCloudflareOperatorIssue(input: {

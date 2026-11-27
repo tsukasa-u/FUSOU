@@ -345,6 +345,14 @@ async function fetch(request, env, context) {
     );
   }
   const trackedEnvironment = withTrackedR2Binding(env);
+  if (url.pathname.startsWith("/__private/admin/issue-retirement")) {
+    const testName = request.headers.get("x-runtime-test-recovery-coordinator");
+    if (testName !== null) {
+      return privateSigner.fetch(
+        request, withOverrides(trackedEnvironment, { FRESHNESS_COORDINATOR_NAME: testName }), context,
+      );
+    }
+  }
   if (
     request.method === "GET" &&
     url.pathname.startsWith("/__private/runtime-config/v2/")

@@ -1,6 +1,7 @@
 import {
   canonicalJsonBytes,
   encodeBase64Url,
+  RuntimeConfigDomainError,
   runtimeConfigFreshnessWire,
   signRuntimeConfigFreshnessResponseEnvelope,
   verifyRuntimeConfigDelegation,
@@ -92,6 +93,15 @@ export interface CloudflareOperatorIssueDependencies {
   readonly coordinator: CloudflareOperatorIssueCoordinator;
   readonly currentState: CloudflareOperatorReleaseStateReader;
   readonly signer: CloudflareOperatorFreshnessSigner;
+  readonly onUnconfirmedIssue?: (diagnostic: CloudflareOperatorIssueDiagnostic) => void;
+}
+
+interface CloudflareOperatorIssueDiagnostic {
+  readonly phase: "signer" | "post_sign_readback" | "finalization";
+  readonly errorCode:
+    | RuntimeConfigDomainError["code"]
+    | CloudflareOperatorProfileError["code"]
+    | "UNKNOWN";
 }
 
 export interface CloudflareOperatorIssueInput {
@@ -183,12 +193,11 @@ export function createCloudflareOperatorReleaseStateReader(
       if (
         !Number.isSafeInteger(snapshot.observedAtMs) ||
         !Number.isSafeInteger(snapshot.lastObservedUtcMs) ||
-        observedAtMs < snapshot.observedAtMs ||
-        observedAtMs < snapshot.lastObservedUtcMs
+        snapshot.observedAtMs < snapshot.lastObservedUtcMs
       ) {
         throw new CloudflareOperatorProfileError(
           "INVALID_TIME",
-          "Runtime UTC observation moved behind the persisted profile observation",
+          "Coordinator UTC observation moved behind the persisted profile observation",
         );
       }
       if (
@@ -303,10 +312,12 @@ export function createCloudflareOperatorReleaseStateReader(
         );
       }
       assertManifestActive(manifest, observedAtMs);
+      // A hosted Worker's clock reflects its last I/O. Compare it with the
+      // Coordinator only after R2 readback, before accepting this evidence.
       const finalObservedAtMs = runtimeUtcNow();
       if (
         finalObservedAtMs < observedAtMs ||
-        finalObservedAtMs < snapshot.lastObservedUtcMs
+        finalObservedAtMs < snapshot.observedAtMs
       ) {
         throw new CloudflareOperatorProfileError(
           "INVALID_TIME",
@@ -659,14 +670,18 @@ export async function issueCloudflareOperatorFreshness(
       challenge,
       currentState: stateAtAdmission,
     });
-  } catch {
-    return issueAdmissionResult(
+  } catch (error) {
+    const result = issueAdmissionResult(
       input.operationId,
       await dependencies.coordinator.markCloudflareOperatorIssueUnknown({
         operation: issue,
         fencingToken,
       }),
     );
+    if (result.status === "RESULT_UNKNOWN") {
+      reportUnconfirmedIssue(dependencies, "signer", error);
+    }
+    return result;
   }
   if (signerResult.outcome !== "COMPLETED") {
     return issueAdmissionResult(
@@ -717,14 +732,18 @@ export async function issueCloudflareOperatorFreshness(
         currentState: stateAtAdmission,
       },
     });
-  } catch {
-    return issueAdmissionResult(
+  } catch (error) {
+    const result = issueAdmissionResult(
       input.operationId,
       await dependencies.coordinator.markCloudflareOperatorIssueUnknown({
         operation: issue,
         fencingToken,
       }),
     );
+    if (result.status === "RESULT_UNKNOWN") {
+      reportUnconfirmedIssue(dependencies, "post_sign_readback", error);
+    }
+    return result;
   }
   if (!sameBinding(stateAtAdmission, stateAfterSigning.state)) {
     return issueAdmissionResult(
@@ -745,7 +764,7 @@ export async function issueCloudflareOperatorFreshness(
       currentStateSha256: stateAfterSigning.state.stateSha256,
       responseBytes: Uint8Array.from(signerResult.responseBytes),
     });
-  } catch {
+  } catch (error) {
     await dependencies.coordinator.markCloudflareOperatorIssueUnknown({
       operation: issue,
       fencingToken,
@@ -755,8 +774,28 @@ export async function issueCloudflareOperatorFreshness(
       requestBytes: input.requestBytes,
       chainId: dependencies.chainId,
     });
+    if (finalized.status === "RESULT_UNKNOWN") {
+      reportUnconfirmedIssue(dependencies, "finalization", error);
+    }
   }
   return issueAdmissionResult(input.operationId, finalized);
+}
+
+function reportUnconfirmedIssue(
+  dependencies: CloudflareOperatorIssueDependencies,
+  phase: CloudflareOperatorIssueDiagnostic["phase"],
+  error: unknown,
+): void {
+  const errorCode =
+    error instanceof RuntimeConfigDomainError ||
+    error instanceof CloudflareOperatorProfileError
+      ? error.code
+      : "UNKNOWN";
+  try {
+    dependencies.onUnconfirmedIssue?.({ phase, errorCode });
+  } catch {
+    // Diagnostics must not change a persisted issue outcome.
+  }
 }
 
 function issueAdmissionResult(
