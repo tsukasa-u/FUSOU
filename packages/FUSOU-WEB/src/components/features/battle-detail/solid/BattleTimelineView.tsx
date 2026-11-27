@@ -21,7 +21,7 @@ import { shipNameFromIndex, slotItemMeta, WeaponIcon } from "./ui";
 // ── Layout & visual constants ─────────────────────────────────────────────
 
 const LINE_H = 20;
-const BASE_ROW_H = 26;
+const BASE_ROW_H = 28;
 const CHART_W = 400;
 const BRIDGE_W = 28;
 const PAD_L = 10;
@@ -30,10 +30,14 @@ const PAD_TOP = 26;
 const PAD_BOT = 10;
 const INNER_W = CHART_W - PAD_L - PAD_R;
 
-/** Constant dy/dx slope for ALL diagonal HP transitions (never clamped). */
-const DIAG_SLOPE = 0.085;
 /** Minimum vertical clearance (px) between consecutive diagonal segments. */
-const MIN_DIAG_GAP = 14;
+const MIN_DIAG_GAP = 10;
+/**
+ * Constant dy/dx slope for ALL diagonal HP transitions.
+ * Sized so even a full 100% -> 0% drop fits within BASE_ROW_H - MIN_DIAG_GAP
+ * without ever expanding single-ship row heights.
+ */
+const DIAG_SLOPE = (BASE_ROW_H - MIN_DIAG_GAP) / INNER_W;
 
 /** Distinct color palettes for combined-fleet 2nd / escort fleets. */
 const F2_COLORS = [
@@ -633,39 +637,19 @@ export default function BattleTimelineView(props: {
     return m !== null && m > 0 ? m : null;
   };
 
-  // Compute exact row vertical geometry: constant slope + centered diagonal + >= MIN_DIAG_GAP clearance
+  // Compute exact row vertical geometry:
+  // Row height depends ONLY on ship line count (never stretched by diagonal length).
   const layout = createMemo(() => {
     const rList = rows();
-    const sList = steps();
     const geom: RowGeometry[] = [];
     let curY = PAD_TOP;
 
     for (let ri = 0; ri < rList.length; ri++) {
       const r = rList[ri]!;
-      let maxDiagDy = 0;
-      if (!r.isPhaseHeader) {
-        for (const d of r.defenders) {
-          if ((d.side !== "friend" && d.side !== "enemy") || d.idx === null) {
-            continue;
-          }
-          const hpKey = d.side === "friend" ? "fHps" : "eHps";
-          const mHp = maxHpFor(d.side, d.idx);
-          const before = sList[ri]?.[hpKey]?.[d.idx];
-          const after = sList[ri + 1]?.[hpKey]?.[d.idx];
-          if (mHp && before != null && after != null) {
-            const xFrom = xHP(Math.min(100, (before / mHp) * 100));
-            const xTo = xHP(Math.min(100, (after / mHp) * 100));
-            maxDiagDy = Math.max(maxDiagDy, calcDiagDy(xFrom, xTo));
-          }
-        }
-      }
       const lineCount = r.isPhaseHeader
         ? 1
         : Math.max(r.attackers.length, r.defenders.length, 1);
-      const contentH = lineCount === 1 ? BASE_ROW_H : lineCount * LINE_H + 8;
-      const minDiagH =
-        maxDiagDy > 0.1 ? Math.ceil(maxDiagDy + MIN_DIAG_GAP) : BASE_ROW_H;
-      const baseH = Math.max(contentH, minDiagH);
+      const baseH = lineCount === 1 ? BASE_ROW_H : lineCount * LINE_H + 8;
       geom.push({
         top: curY,
         baseH,
